@@ -32,6 +32,6 @@ python data/generate_waypoints.py
 ```
 
 ### Demonstration:
-![Demonstration ]()
+![Demonstration ](KinematicBicycleModel/animation.gif)
 
 
