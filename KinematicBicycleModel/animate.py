@@ -278,9 +278,10 @@ def main():
 
     anim = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
     
-    # plt.grid()
-    # plt.show()
-    anim.save('animation.gif', writer='imagemagick', fps=50)
+    plt.grid()
+    plt.show()
+    # anim.save('animation.gif', writer='imagemagick', fps=50)
+
 
 
 
