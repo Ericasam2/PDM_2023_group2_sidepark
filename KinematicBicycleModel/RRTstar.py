@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Tuple, List
 from scipy.spatial.distance import euclidean
-from sklearn.neighbors import KDTree
+from scipy.spatial import cKDTree as KDTree
 
 class RRTStar:
     def __init__(self, X, Q, x_init, x_goal, max_samples, r, prc=0.01, rewire_count=None):
@@ -15,24 +15,30 @@ class RRTStar:
         self.rewire_count = rewire_count if rewire_count is not None else 0
         self.c_best = float('inf')  # Length of best solution thus far
         self.trees = {0: {"V": [self.x_init], "E": {}}}
+        self.kdtree = KDTree(self.trees[0]["V"])
 
     def add_vertex(self, tree, vertex):
-        self.trees[tree]["V"].append(vertex)
+        self.trees[tree]["V"].append(tuple(vertex))
 
     def add_edge(self, tree, parent, child):
         if child is not None:
-            self.trees[tree]["E"][child] = parent
+            self.trees[tree]["E"][tuple(child)] = tuple(parent)  # Convert to tuples
 
     def nearby(self, tree, x_new, count):
         all_vertices = np.array(self.trees[tree]["V"])
-        distances = np.linalg.norm(all_vertices - x_new, axis=1)
-        indices = np.argsort(distances)
-        return all_vertices[indices[:count]]
-
+        if len(all_vertices) == 0:
+            return []
+        
+        count = min(count, len(all_vertices))
+        distances, indices = self.kdtree.query(x_new, k=min(count, len(all_vertices)))
+        return all_vertices[indices].tolist()
+    
     def new_and_near(self, tree, q):
         x_rand = self.sample_random_point()
         x_near = self.nearest_vertex(tree, x_rand)
         x_new = self.steer(x_near, x_rand, q)
+        self.kdtree = KDTree(np.vstack([self.kdtree.data, x_new]))
+
         return x_new, x_near
 
     def sample_random_point(self):
@@ -83,8 +89,10 @@ class RRTStar:
 
     def get_nearby_vertices(self, tree, x_init, x_new):
         X_near = self.nearby(tree, x_new, self.current_rewire_count(tree))
-        L_near = [(self.path_cost(x_init, x_near) + self.segment_cost(x_near, x_new), x_near) for
-                  x_near in X_near]
+        if len(X_near) == 0:
+            return []
+
+        L_near = [(self.path_cost(x_init, x_near) + self.segment_cost(x_near, x_new), x_near) for x_near in X_near]
         L_near.sort(key=lambda x: x[0])
         return L_near
 
@@ -136,6 +144,42 @@ class RRTStar:
                     return solution[1]
 
         return []
+
+
+
+class SearchSpace:
+    def __init__(self, map_size_x, map_size_y):
+        self.map_size_x = map_size_x
+        self.map_size_y = map_size_y
+
+    def collision_free(self, point1, point2, r):
+        # Add your collision checking logic here
+        return True  # For testing purposes, assume collision-free
+
+# Example collision-free function
+def collision_free(point1, point2, r):
+    # Add your collision checking logic here
+    return True  # For testing purposes, assume collision-free
+
+# Define the search space
+X = SearchSpace(map_size_x=20, map_size_y=20)
+
+# Define the list of edge lengths Q
+Q = [0.5, 1.0, 1.5]
+
+# Create an instance of the RRTStar algorithm
+rrt = RRTStar(X, Q, x_init=(0, 0), x_goal=(10, 10), max_samples=5000, r=1.0, prc=0.01)
+
+# Set the collision-free function
+rrt.X.collision_free = collision_free
+
+# Run the RRT* algorithm
+path = rrt.rrt_star()
+
+# Print the resulting path
+print("Optimal Path:", path)
+
+
 
 # Usage example:
 # X is the search space with map_size_x and map_size_y attributes
