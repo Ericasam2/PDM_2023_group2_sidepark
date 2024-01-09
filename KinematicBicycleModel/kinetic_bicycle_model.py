@@ -113,7 +113,6 @@ class KinematicBicycleModel:
         new_x = x + x_dot * self.delta_time
         new_y = y + y_dot * self.delta_time
         new_yaw = yaw + yaw_dot * self.delta_time
-        # new_yaw = (new_yaw + pi) % (2 * pi) - pi
         return new_x, new_y, new_yaw, new_velocity
     
     

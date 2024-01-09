@@ -7,8 +7,8 @@ import do_mpc
 from kinetic_bicycle_model import KinematicBicycleModel
 import matplotlib.pyplot as plt
 from libs import CarDescription, StanleyController, generate_cubic_spline
-from math import radians, cos, sin, atan, tan
-
+from math import radians
+from casadi import cos, sin, tan, atan
 from matplotlib import rcParams
 
 class Car:
@@ -128,7 +128,7 @@ class MPC_controller:
         # define according to the application
         x_error = (current_state[0] - self.target_state[0])**2
         y_error = (current_state[1] - self.target_state[1])**2
-        yaw_error = (current_state[2] - self.target_state[2])**2
+        yaw_error = (sin(current_state[2] - self.target_state[2]))**2
         vel_error = (current_state[3] - self.target_state[3])**2
         # print("current state: {}, {}, {}, {}".format(current_state[0], current_state[1], current_state[2], current_state[3]))
         # print("error: {}".format(x_error + y_error + yaw_error + vel_error))
@@ -170,13 +170,11 @@ class MPC_controller:
         return self.model, mpc, estimator, simulator
         
         
-        
-        
     
 def main():
     car  = Car(0, 0, 0, 50, 50, 3, 1/50.0)
-    initial_state = np.array([0, 0, 0, 5])
-    target_state = np.array([10, 10, 2, 5])
+    initial_state = np.array([0, 0, 0, 0])
+    target_state = np.array([10, 10, 2, 0])
     controller = MPC_controller(car.kinematic_bicycle_model, initial_state, target_state)
     [model, mpc, estimator, simulator] = controller.generate()
     
@@ -195,7 +193,7 @@ def main():
     # Use initial state to set the initial guess.
     mpc.set_initial_guess()
     
-    n_steps = 200
+    n_steps = 1000
     for k in range(n_steps):
         u0 = mpc.make_step(x0)
         y_next = simulator.make_step(u0)

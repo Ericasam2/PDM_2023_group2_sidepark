@@ -2,7 +2,7 @@ import cvxpy as cp
 import matplotlib.pyplot as plt
 import numpy as np
 from math import radians
-from kinetic_bicycle_model import KinematicBicycleModel
+from KinematicBicycleModel.kinetic_bicycle_model import KinematicBicycleModel
 from libs import CarDescription, StanleyController, generate_cubic_spline
 from scipy.optimize import minimize, LinearConstraint, NonlinearConstraint
 
