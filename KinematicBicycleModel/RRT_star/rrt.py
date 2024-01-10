@@ -1,4 +1,4 @@
-from rrt_base import RRTBase
+from RRT_star.rrt_base import RRTBase
 
 
 class RRT(RRTBase):

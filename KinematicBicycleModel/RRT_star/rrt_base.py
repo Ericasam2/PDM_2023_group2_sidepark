@@ -2,8 +2,8 @@ import random
 
 import numpy as np
 
-from tree import Tree
-from utilities.geometry import steer
+from RRT_star.tree import Tree
+from RRT_star.utilities.geometry import steer
 
 
 class RRTBase(object):

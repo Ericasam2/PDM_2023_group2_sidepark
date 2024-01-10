@@ -8,7 +8,9 @@ from matplotlib.animation import FuncAnimation
 
 from kinematic_model import KinematicBicycleModel
 from libs import CarDescription, StanleyController, generate_cubic_spline
-
+from RRT_star.rrt_star import RRTStar
+from RRT_star.search_space.search_space import SearchSpace
+import numpy as np
 
 class Simulation:
 
@@ -27,16 +29,18 @@ class Simulation:
 
 class Path:
 
-    def __init__(self):
+    def __init__(self, searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count):
 
-        # Get path to waypoints.csv
-        data_path = 'data/sine_wave_waypoints.csv'
-        with open(data_path, newline='') as f:
-            rows = list(reader(f, delimiter=','))
+        # RRTstar
+        rrt = RRTStar(searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count)
+        x = rrt.rrt_star()
+        path = np.array(x)
+        print(path)
+        
 
         ds = 0.05
-        x, y = [[float(i) for i in row] for row in zip(*rows[1:])]
-        self.px, self.py, self.pyaw, _ = generate_cubic_spline(x, y, ds)
+        
+        self.px, self.py, self.pyaw, _ = generate_cubic_spline(path[:,0], path[:,1], ds)
 
 
 class Car:
@@ -232,12 +236,22 @@ def animate(frame, fargs):
 def main():
     
     sim  = Simulation()
-    path = Path()
-    # rrt = RRTStar(X, Q, (path.px[0], path.py[0]), (path.px[-1], path.py[-1]), max_samples=5000, r=1.0)
-    # rrt_path = rrt.rrt_star() <--- This might be how to implement it 
-    car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px, path.py, path.pyaw, sim.dt)
-    obstacle = StaticObstacle()
-    obstacle.get_obstacle()
+    X_dimesions = np.array([(0, 100), (0, 100)])
+    searchspace = SearchSpace(X_dimesions, None)
+    x_init = (0, 0)  # starting location
+    x_goal = (100, 100)  # goal location
+
+    Q = np.array([(1, 1)])  # length of tree edges
+    r = 1  # length of smallest edge to check for intersection with obstacles
+    max_samples = 2048  # max number of samples to take before timing out
+    rewire_count = 32  # optional, number of nearby branches to rewire
+    prc = 0.1  # probability of checking for a connection to goal
+
+    # rrt = RRTStar(searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count)
+    # path = rrt.rrt_star()
+
+    path = Path(searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count)
+    car  = Car(x_init[0], x_init[1], 0, path.px, path.py, path.pyaw, sim.dt)
 
     interval = sim.dt * 10**3
 
@@ -251,7 +265,7 @@ def main():
     ax.plot(path.px, path.py, '--', color='gold')  # path
     
     # Draw the obstacles
-    obstacle.plot_obstacle(ax)
+    # obstacle.plot_obstacle(ax)
 
     empty              = ([], [])
     target,            = ax.plot(*empty, '+r')

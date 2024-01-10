@@ -2,9 +2,9 @@
 # file 'LICENSE', which is part of this source code package.
 from operator import itemgetter
 
-from heuristics import cost_to_go
-from heuristics import segment_cost, path_cost
-from rrt import RRT
+from RRT_star.heuristics import cost_to_go
+from RRT_star.heuristics import segment_cost, path_cost
+from RRT_star.rrt import RRT
 
 
 class RRTStar(RRT):
