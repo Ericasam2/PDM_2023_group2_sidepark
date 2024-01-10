@@ -7,8 +7,8 @@ import do_mpc
 from kinetic_bicycle_model import KinematicBicycleModel
 import matplotlib.pyplot as plt
 from libs import CarDescription, StanleyController, generate_cubic_spline
-from math import radians
-from casadi import cos, sin, tan, atan
+from math import radians, pi
+from casadi import cos, sin, tan, atan, acos, fmod, sqrt, hypot
 from matplotlib import rcParams
 
 class Car:
@@ -25,7 +25,8 @@ class Car:
         self.wheel_angle = 0.0
         self.angular_velocity = 0.0
         rear_length = 2.0
-        max_steer = radians(33)
+        self.max_steer = radians(33)
+        self.max_velocity = 5
         wheelbase = 2.96
 
         # Acceleration parameters
@@ -54,8 +55,8 @@ class Car:
         rear_overhang = 0.5 * (overall_length - wheelbase)
 
         # Path tracking and Bicycle model
-        self.tracker = StanleyController(self.k, self.ksoft, self.kyaw, self.ksteer, max_steer, wheelbase, self.px, self.py, self.pyaw)
-        self.kinematic_bicycle_model = KinematicBicycleModel(wheelbase, rear_length, max_steer, self.delta_time)
+        self.tracker = StanleyController(self.k, self.ksoft, self.kyaw, self.ksteer, self.max_steer, wheelbase, self.px, self.py, self.pyaw)
+        self.kinematic_bicycle_model = KinematicBicycleModel(wheelbase, rear_length, self.max_steer, self.delta_time)
         self.description = CarDescription(overall_length, overall_width, rear_overhang, tyre_diameter, tyre_width, axle_track, wheelbase)
 
     
@@ -128,11 +129,12 @@ class MPC_controller:
         # define according to the application
         x_error = (current_state[0] - self.target_state[0])**2
         y_error = (current_state[1] - self.target_state[1])**2
-        yaw_error = (sin(current_state[2] - self.target_state[2]))**2
+        yaw_error = (fmod((current_state[2] - self.target_state[2]) + 101*pi, 2*pi) - pi)**2
         vel_error = (current_state[3] - self.target_state[3])**2
+        # yaw_error = (sin(current_state[2] - self.target_state[2]))**2
         # print("current state: {}, {}, {}, {}".format(current_state[0], current_state[1], current_state[2], current_state[3]))
         # print("error: {}".format(x_error + y_error + yaw_error + vel_error))
-        return x_error + y_error + yaw_error + vel_error 
+        return x_error + y_error + 10*yaw_error + vel_error 
     
     
     # cost function
@@ -159,6 +161,8 @@ class MPC_controller:
         mpc.bounds['lower','_u','steering'] = -self.vehicle.max_steer
         # upper bounds of the input
         mpc.bounds['upper','_u','steering'] =  self.vehicle.max_steer
+        mpc.bounds['lower','_x','velocity'] =  -self.vehicle.max_velocity
+        mpc.bounds['upper','_x','velocity'] =  self.vehicle.max_velocity
         
         # set up
         mpc.setup()
@@ -174,7 +178,7 @@ class MPC_controller:
 def main():
     car  = Car(0, 0, 0, 50, 50, 3, 1/50.0)
     initial_state = np.array([0, 0, 0, 0])
-    target_state = np.array([10, 10, 2, 0])
+    target_state = np.array([50, 10, 2, 0])
     controller = MPC_controller(car.kinematic_bicycle_model, initial_state, target_state)
     [model, mpc, estimator, simulator] = controller.generate()
     

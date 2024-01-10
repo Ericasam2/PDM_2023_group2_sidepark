@@ -239,7 +239,7 @@ def animate(frame, fargs):
     target.set_data(path.px[car.target_id], path.py[car.target_id])
 
     # Annotate car's coordinate above car
-    annotation.set_text(f'{float(car.x):.1f}, {float(car.y):.1f}')
+    annotation.set_text(f'{float(car.x):.1f}, {float(car.y):.1f}, {float(car.yaw):.1f}')
     annotation.set_position((float(car.x), float(car.y) + 5))
 
     plt.title(f'{sim.dt*frame:.2f}s', loc='right')
