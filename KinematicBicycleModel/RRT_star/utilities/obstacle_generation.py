@@ -13,7 +13,7 @@ def generate_random_obstacles(X, start, end, n):
     i = 0
     obstacles = []
     while i < n:
-        center = np.empty(len(X.dimension_lengths), np.float)
+        center = np.empty(len(X.dimension_lengths), float)
         scollision = True
         fcollision = True
         edge_lengths = []
@@ -35,8 +35,8 @@ def generate_random_obstacles(X, start, end, n):
                 fcollision = False
 
         # Check if any part of the obstacle is inside of another obstacle.
-        min_corner = np.empty(X.dimensions, np.float)
-        max_corner = np.empty(X.dimensions, np.float)
+        min_corner = np.empty(X.dimensions, float)
+        max_corner = np.empty(X.dimensions, float)
         for j in range(X.dimensions):
             min_corner[j] = center[j] - edge_lengths[j]
             max_corner[j] = center[j] + edge_lengths[j]
@@ -51,10 +51,15 @@ def generate_random_obstacles(X, start, end, n):
     return obstacles
 
 
+# def obstacle_generator(obstacles):
+#     """
+#     Add obstacles to r-tree
+#     :param obstacles: list of obstacles
+#     """
+#     for obstacle in obstacles:
+#         yield (uuid.uuid4(), obstacle, obstacle)
+
 def obstacle_generator(obstacles):
-    """
-    Add obstacles to r-tree
-    :param obstacles: list of obstacles
-    """
-    for obstacle in obstacles:
-        yield (uuid.uuid4(), obstacle, obstacle)
+    for i, obstacle in enumerate(obstacles):
+        x1, y1, x2, y2 = obstacle
+        yield (i, (x1, y1, x2, y2), None)

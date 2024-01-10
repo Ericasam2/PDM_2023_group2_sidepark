@@ -233,6 +233,8 @@ def main():
     
     sim  = Simulation()
     path = Path()
+    # rrt = RRTStar(X, Q, (path.px[0], path.py[0]), (path.px[-1], path.py[-1]), max_samples=5000, r=1.0)
+    # rrt_path = rrt.rrt_star() <--- This might be how to implement it 
     car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px, path.py, path.pyaw, sim.dt)
     obstacle = StaticObstacle()
     obstacle.get_obstacle()
@@ -276,7 +278,7 @@ def main():
         target=target
     )]
 
-    anim = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
+    _ = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
     
     plt.grid()
     plt.show()
@@ -287,3 +289,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    
