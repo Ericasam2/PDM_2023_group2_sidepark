@@ -2,7 +2,7 @@ from math import pi
 import numpy as np
 import cvxpy as cp
 from libs import normalise_angle
-from casadi import cos, sin, tan, atan
+from casadi import cos, sin, tan, atan, fmod
 
 class KinematicBicycleModel:
     """
@@ -30,6 +30,7 @@ class KinematicBicycleModel:
         self.wheelbase = wheelbase
         self.max_steer = max_steer
         self.rear_length = rear_length
+        self.max_velocity = 5
 
 
     def update(self, x: float, y: float, yaw: float, velocity: float, acceleration: float, steering_angle: float) -> tuple[float, ...]:
@@ -113,6 +114,7 @@ class KinematicBicycleModel:
         new_x = x + x_dot * self.delta_time
         new_y = y + y_dot * self.delta_time
         new_yaw = yaw + yaw_dot * self.delta_time
+        # new_yaw = fmod((new_yaw + 101*pi), 2*pi) - pi
         return new_x, new_y, new_yaw, new_velocity
     
     
