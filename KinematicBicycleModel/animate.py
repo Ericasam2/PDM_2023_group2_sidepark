@@ -220,7 +220,7 @@ class StaticObstacle:
 
     def get_obstacle(self):
         # Get static obstacle data
-        data_path = 'PDM_2023_group2_sidepark\KinematicBicycleModel\data\static_obstacles.csv'
+        data_path = 'data/static_obstacles.csv'
         with open(data_path, newline='') as f:
             rows = list(reader(f, delimiter=','))[1:-1]
         self.number = len(rows)

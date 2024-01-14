@@ -412,6 +412,8 @@ def main():
     axs[0].set_xlabel("Index")
     axs[0].set_ylabel("Distance Error [m]")
     err_distance = mean_squared_error(np.zeros(len(controller.distance_error)), controller.distance_error)
+    final_x_err = 
+    axs[0].text(0.95, 0.95, f'RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
     axs[0].text(0.95, 0.95, f'RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
     axs[0].legend()
 
