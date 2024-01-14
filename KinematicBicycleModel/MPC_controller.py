@@ -10,7 +10,24 @@ from libs import CarDescription, StanleyController, generate_cubic_spline
 from math import radians, pi
 from casadi import cos, sin, tan, atan, acos, fmod, sqrt, hypot
 from matplotlib import rcParams
+from libs import normalise_angle
+from csv import reader
 
+
+class Path:
+
+    def __init__(self):
+
+        # Get path to waypoints.csv
+        data_path = 'data/sine_wave_waypoints.csv'
+        # data_path = 'data/waypoints.csv'
+        with open(data_path, newline='') as f:
+            rows = list(reader(f, delimiter=','))
+
+        ds = 0.05
+        x, y = [[float(i) for i in row] for row in zip(*rows[1:])]
+        self.px, self.py, self.pyaw, _ = generate_cubic_spline(x, y, ds)
+        
 class Car:
 
     def __init__(self, init_x, init_y, init_yaw, px, py, pyaw, delta_time):
@@ -58,7 +75,6 @@ class Car:
         self.tracker = StanleyController(self.k, self.ksoft, self.kyaw, self.ksteer, self.max_steer, wheelbase, self.px, self.py, self.pyaw)
         self.kinematic_bicycle_model = KinematicBicycleModel(wheelbase, rear_length, self.max_steer, self.delta_time)
         self.description = CarDescription(overall_length, overall_width, rear_overhang, tyre_diameter, tyre_width, axle_track, wheelbase)
-
     
     def get_required_acceleration(self):
 
@@ -82,36 +98,21 @@ class Car:
 
 class MPC_controller:
     
-    def __init__(self, vehicle, initial_state, target_state):
+    def __init__(self, vehicle, path_x, path_y, path_yaw):
         self.model_type = 'discrete'
         self.model = do_mpc.model.Model(self.model_type)
         
-        self.initial_state = initial_state
-        self.target_state = target_state
-    
-        self.vel = self.model.set_variable('_x', 'velocity')
-        self.pos_x = self.model.set_variable('_x', 'position_x')
-        self.pos_y = self.model.set_variable('_x', 'position_y')
-        self.yaw = self.model.set_variable('_x', 'yaw')
-
-        self.a = self.model.set_variable('_u', 'acceleration')
-        self.delta = self.model.set_variable('_u', 'steering')
-
+        self.px = path_x
+        self.py = path_y
+        self.pyaw = path_yaw
         self.vehicle = vehicle
-        [self.new_pos_x, self.new_pos_y, self.new_yaw, self.new_vel] = self.vehicle.dt_update(self.pos_x, 
-                                                                                            self.pos_y, 
-                                                                                            self.yaw, 
-                                                                                            self.vel, 
-                                                                                            self.a, 
-                                                                                            self.delta)
-        self.model.set_rhs('position_x', self.new_pos_x)
-        self.model.set_rhs('position_y', self.new_pos_y)
-        self.model.set_rhs('yaw', self.new_yaw)
-        self.model.set_rhs('velocity', self.new_vel)
-        self.model.set_expression('cost', self.error_function(np.array([self.pos_x, self.pos_y, self.yaw, self.vel])))
+        self.terminate = 0
+    
+
+    def mpc_setting(self):
         # Set parameters for MPC
         self.etup_mpc = {
-            'n_horizon': 100,
+            'n_horizon': 50,
             'n_robust': 0,
             'open_loop': 0,
             't_step': self.vehicle.delta_time,
@@ -124,22 +125,76 @@ class MPC_controller:
             'nlpsol_opts': {'ipopt.linear_solver': 'mumps'}
         }
     
-    def error_function(self, current_state):
+    def mpc_dynamics(self):
+        self.pos_x = self.model.set_variable('_x', 'position_x')
+        self.pos_y = self.model.set_variable('_x', 'position_y')
+        self.yaw = self.model.set_variable('_x', 'yaw')
+        self.vel = self.model.set_variable('_x', 'velocity')
+
+        self.a = self.model.set_variable('_u', 'acceleration')
+        self.delta = self.model.set_variable('_u', 'steering')
+
+        [self.new_pos_x, self.new_pos_y, self.new_yaw, self.new_vel] = self.vehicle.dt_update(self.pos_x, 
+                                                                                            self.pos_y, 
+                                                                                            self.yaw, 
+                                                                                            self.vel, 
+                                                                                            self.a, 
+                                                                                            self.delta)
+        self.model.set_rhs('position_x', self.new_pos_x)
+        self.model.set_rhs('position_y', self.new_pos_y)
+        self.model.set_rhs('yaw', self.new_yaw)
+        self.model.set_rhs('velocity', self.new_vel)
+        
+        # define the reference signal as time-varing signals
+        self.target_x = self.model.set_variable(var_type='_tvp', var_name='target_x')
+        self.target_y = self.model.set_variable(var_type='_tvp', var_name='target_y')
+        self.target_yaw = self.model.set_variable(var_type='_tvp', var_name='target_yaw')
+        self.target_v = self.model.set_variable(var_type='_tvp', var_name='target_v')
+        
+    def find_target_path_id(self, x, y, yaw):  
+
+        # Calculate position of the front axle
+        fx = x + self.vehicle.wheelbase * cos(yaw)
+        fy = y + self.vehicle.wheelbase * sin(yaw)
+
+        dx = fx - self.px    # Find the x-axis of the front axle relative to the path
+        dy = fy - self.py    # Find the y-axis of the front axle relative to the path
+        
+
+        d = np.hypot(dx, dy) # Find the distance from the front axle to the path
+        target_index = np.argmin(d) # Find the shortest distance in the array
+        
+        yaw_error = normalise_angle(self.pyaw[target_index] - yaw)
+
+        return target_index
+    
+    def error_function(self):
         # define the error function
         # define according to the application
-        x_error = (current_state[0] - self.target_state[0])**2
-        y_error = (current_state[1] - self.target_state[1])**2
-        yaw_error = (fmod((current_state[2] - self.target_state[2]) + 101*pi, 2*pi) - pi)**2
-        vel_error = (current_state[3] - self.target_state[3])**2
+        x_error = (self.model.x["position_x"] - self.model.tvp["target_x"])**2
+        y_error = (self.model.x["position_y"] - self.model.tvp["target_y"])**2
+        yaw_error = (fmod((self.model.x["yaw"] - self.model.tvp["target_yaw"]) + 101*pi, 2*pi) - pi)**2
+        vel_error = (self.model.x["velocity"] - self.model.tvp["target_v"])**2
+        # x_error = (current_state[0] - self.target_state[0])**2
+        # y_error = (current_state[1] - self.target_state[1])**2
+        # yaw_error = (fmod((current_state[2] - self.target_state[2]) + 101*pi, 2*pi) - pi)**2
+        # vel_error = (current_state[3] - self.target_state[3])**2
         # yaw_error = (sin(current_state[2] - self.target_state[2]))**2
         # print("current state: {}, {}, {}, {}".format(current_state[0], current_state[1], current_state[2], current_state[3]))
         # print("error: {}".format(x_error + y_error + yaw_error + vel_error))
-        return x_error + y_error + 10*yaw_error + vel_error 
+        return 10*x_error + 10*y_error + 10*yaw_error + 10 * vel_error 
+        # return 30*x_error + 1*y_error + 500*yaw_error + 1* vel_error 
     
-    
-    # cost function
-    def generate(self):
+    def model_setup(self):
         
+        # mpc setting
+        self.mpc_setting()
+        
+        # dynamics
+        self.mpc_dynamics()
+
+        self.model.set_expression('cost', self.error_function())
+         
         # Build the model
         self.model.setup()
 
@@ -163,53 +218,151 @@ class MPC_controller:
         mpc.bounds['upper','_u','steering'] =  self.vehicle.max_steer
         mpc.bounds['lower','_x','velocity'] =  -self.vehicle.max_velocity
         mpc.bounds['upper','_x','velocity'] =  self.vehicle.max_velocity
-        
+        '''
+        nvp 
+        '''
+        mpc_tvp_template = mpc.get_tvp_template()
+        # print(mpc_tvp_template)
+        def mpc_tvp_fun(t):
+            for k in range(50+1):
+                mpc_tvp_template['_tvp', k, 'target_x'] = self.target_state[0]
+                mpc_tvp_template['_tvp', k, 'target_y'] = self.target_state[1]
+                mpc_tvp_template['_tvp', k, 'target_yaw'] = self.target_state[2]
+                mpc_tvp_template['_tvp', k, 'target_v'] = self.target_state[3]
+            return mpc_tvp_template
+        mpc.set_tvp_fun(mpc_tvp_fun)
         # set up
         mpc.setup()
         estimator = do_mpc.estimator.StateFeedback(self.model)
         simulator = do_mpc.simulator.Simulator(self.model)
         simulator.set_param(t_step = self.vehicle.delta_time)
+        # Get the template
+        stil_tvp_template = simulator.get_tvp_template()
+        def stil_tvp_fun(t):
+            stil_tvp_template['target_x'] = self.target_state[0]
+            stil_tvp_template['target_y'] = self.target_state[1]
+            stil_tvp_template['target_yaw'] = self.target_state[2]
+            stil_tvp_template['target_v'] = self.target_state[3]
+            # print(stil_tvp_template)
+
+            return stil_tvp_template
+        # Set the tvp_fun:
+        simulator.set_tvp_fun(stil_tvp_fun)
         simulator.setup()
         
         return self.model, mpc, estimator, simulator
+    
+    
+    # cost function
+    def update_reference(self, x, y, yaw, v, t):
+        # print(x)
+        # print(y)
+        # print(yaw)
+        
+        # find the target point
+        target_index = self.find_target_path_id(x, y, yaw)
+        target_x = self.px[target_index]
+        target_y = self.py[target_index]
+        target_yaw = self.pyaw[target_index]
+        
+        # cost
+        if target_index == len(self.px):
+            target_v = 0
+            self.terminate = 1
+        # elif target_index >= len(self.px) - 10:
+        #     target_v = float(v) - 1/10 * 5
+        else:
+            target_v = 1
+            # target_v = min(5, float(v) + 0.5 * t)
+            self.terminate = 0
+        self.target_state = np.array([target_x, target_y, target_yaw, target_v])
         
         
     
 def main():
-    car  = Car(0, 0, 0, 50, 50, 3, 1/50.0)
-    initial_state = np.array([0, 0, 0, 0])
-    target_state = np.array([50, 10, 2, 0])
-    controller = MPC_controller(car.kinematic_bicycle_model, initial_state, target_state)
-    [model, mpc, estimator, simulator] = controller.generate()
-    
-    # simulation
-    
-    # Seed
+    X = []
+    Y = []
+    YAW = []
+    V = []
+    target_V = []
+    target_X = []
+    target_Y = []
+    target_YAW = []
+    path = Path()
+    car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px, path.py, path.pyaw, 1/50)
+    controller = MPC_controller(car.kinematic_bicycle_model, path.px, path.py, path.pyaw)
+    initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
+    current_state = initial_state
     np.random.seed(99)
-
-    # Initial state
-    e = np.ones([model.n_x,1])
-    x0 = initial_state
+    # saved states
+    X.append(initial_state[0])
+    Y.append(initial_state[1])
+    YAW.append(initial_state[2])
+    V.append(initial_state[3])
+    
+    controller.update_reference(current_state[0], current_state[1], current_state[2], current_state[3], 0)
+    target_X.append(controller.target_state[0])
+    target_Y.append(controller.target_state[1])
+    target_YAW.append(controller.target_state[2])
+    target_V.append(controller.target_state[3])
+    # control
+    [model, mpc, estimator, simulator] = controller.model_setup()
+    # while not controller.terminate == 1: 
+    x0 = current_state
     mpc.x0 = x0
     simulator.x0 = x0
-    estimator.x0 = x0
-    
+    estimator.x0 = x0  
     # Use initial state to set the initial guess.
     mpc.set_initial_guess()
+    N = 8000
+    for t in range(1, N):
+        # control horizon
+        n_steps = 1
+        for k in range(n_steps):
+            u0 = mpc.make_step(x0)
+            y_next = simulator.make_step(u0)
+            x0 = estimator.make_step(y_next)
+            # if (float(x0[0]) - float(controller.target_state[0]))**2 + (float(x0[1]) - float(controller.target_state[1]))**2 < 0.1:
+            #     continue
+        current_state = x0
+        controller.update_reference(current_state[0], current_state[1], current_state[2], current_state[3], t)
+        # save states
+        X.append(float(current_state[0]))
+        Y.append(float(current_state[1]))
+        YAW.append(float(current_state[2]))
+        V.append(float(current_state[3]))
+        target_V.append(float(controller.target_state[3]))
+        target_X.append(float(controller.target_state[0]))
+        target_Y.append(float(controller.target_state[1]))
+        target_YAW.append(float(controller.target_state[2]))
     
-    n_steps = 1000
-    for k in range(n_steps):
-        u0 = mpc.make_step(x0)
-        y_next = simulator.make_step(u0)
-        x0 = estimator.make_step(y_next)
-    
-    
-    rcParams['axes.grid'] = True
-    rcParams['font.size'] = 18
-    
-    fig, ax, graphics = do_mpc.graphics.default_plot(mpc.data, figsize=(16,9))
-    graphics.plot_results()
-    graphics.reset_axes()
+    # rcParams['axes.grid'] = True
+    # rcParams['font.size'] = 18
+
+    tspam = [i for i in range(N) ]
+    plt.subplot(3,2,1)
+    plt.plot(tspam, X)
+    plt.ylabel("X")
+    plt.xlabel("t")
+    plt.subplot(3,2,2)
+    plt.plot(X,Y)
+    plt.plot(path.px[:N], path.py[:N])
+    plt.legend(["car", "path"])
+    plt.subplot(3,2,3)
+    plt.plot(tspam, V)
+    plt.ylabel("V")
+    plt.subplot(3,2,4)
+    plt.plot(tspam, target_X)
+    plt.ylabel("target X")
+    plt.xlabel("t")
+    plt.subplot(3,2,5)
+    plt.plot(tspam, target_V)
+    plt.ylabel("target V")
+    plt.subplot(3,2,6)
+    plt.plot(tspam, YAW)
+    plt.plot(tspam, target_YAW)
+    plt.ylabel("target YAW")
+    plt.legend(["YAW", "target YAW"])
     plt.show()
     
     

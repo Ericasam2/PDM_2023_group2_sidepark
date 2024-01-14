@@ -1,7 +1,7 @@
 # pylint: skip-file
 from csv import reader
 from dataclasses import dataclass
-from math import radians
+from math import radians, pi
 
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -34,6 +34,7 @@ class Path:
     def __init__(self):
 
         # Get path to waypoints.csv
+        # data_path = 'data/sine_wave_waypoints.csv'
         data_path = 'data/sine_wave_waypoints.csv'
         with open(data_path, newline='') as f:
             rows = list(reader(f, delimiter=','))
@@ -109,12 +110,16 @@ class Car:
         self.simulator = simulator
         
     def CL_drive(self):
+        # print(self.current_state)
         inputs = self.mpc.make_step(self.current_state)
         y_next = self.simulator.make_step(inputs)
         self.current_state = self.estimator.make_step(y_next)
         
-        self.velocity, self.x, self.y, self.yaw = self.current_state[0], self.current_state[1], self.current_state[2], self.current_state[3]
-        self.steering_angle = inputs[1]
+        self.x, self.y, self.yaw, self.velocity = self.current_state[0], self.current_state[1], self.current_state[2], self.current_state[3]
+        self.wheel_angle = inputs[1]
+        # update reference and time
+        self.time += self.delta_time
+        # self.controller.update_reference(self.current_state[0], self.current_state[1], self.current_state[2], self.current_state[3], self.time)
         
     def drive(self):
         
@@ -165,9 +170,10 @@ class StaticObstacle:
 
     def get_obstacle(self):
         # Get static obstacle data
-        data_path = 'data/static_obstacles.csv'
+        # data_path = 'data/static_obstacles.csv'
+        data_path = 'data/test_big_circle.csv'
         with open(data_path, newline='') as f:
-            rows = list(reader(f, delimiter=','))[1:-1]
+            rows = list(reader(f, delimiter=','))[1:]
         self.number = len(rows)
         for s,d in rows:
             self.shape.append(s)
@@ -196,6 +202,7 @@ class Fargs:
     sim: Simulation
     path: Path
     car: Car
+    ctrl: MPC_controller
     car_outline: plt.Line2D
     front_right_wheel: plt.Line2D
     front_left_wheel: plt.Line2D
@@ -212,6 +219,7 @@ def animate(frame, fargs):
     sim               = fargs.sim
     path              = fargs.path
     car               = fargs.car
+    controller        = fargs.ctrl
     car_outline       = fargs.car_outline
     front_right_wheel = fargs.front_right_wheel
     front_left_wheel  = fargs.front_left_wheel
@@ -227,6 +235,7 @@ def animate(frame, fargs):
 
     # Drive and draw car
     car.CL_drive()
+    controller.update_reference(car.x, car.y, car.yaw, car.velocity, car.time)
     outline_plot, fr_plot, rr_plot, fl_plot, rl_plot = car.plot_car()
     car_outline.set_data(*outline_plot)
     front_right_wheel.set_data(*fr_plot)
@@ -236,7 +245,7 @@ def animate(frame, fargs):
     rear_axle.set_data(car.x, car.y)
 
     # Show car's target
-    target.set_data(path.px[car.target_id], path.py[car.target_id])
+    # target.set_data(path.px[car.target_id], path.py[car.target_id])
 
     # Annotate car's coordinate above car
     annotation.set_text(f'{float(car.x):.1f}, {float(car.y):.1f}, {float(car.yaw):.1f}')
@@ -253,11 +262,12 @@ def main():
     
     sim  = Simulation()
     path = Path()
-    car  = Car(0, 0, 0, path.px, path.py, path.pyaw, sim.dt)
-    initial_state = np.array([0, 0, 0, 0])
-    target_state = np.array([50, 10, 2, 0])
-    controller = MPC_controller(car.kinematic_bicycle_model, initial_state, target_state)
-    [model, mpc, estimator, simulator] = controller.generate()
+    car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px, path.py, path.pyaw, sim.dt)
+    controller = MPC_controller(car.kinematic_bicycle_model, path.px, path.py, path.pyaw)
+    initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
+    car.current_state = initial_state
+    controller.update_reference(car.current_state[0], car.current_state[1], car.current_state[2], car.current_state[3], car.time)
+    [model, mpc, estimator, simulator] = controller.model_setup()
     
     # Initial state
     e = np.ones([model.n_x,1])
@@ -286,7 +296,7 @@ def main():
     ax.plot(path.px, path.py, '--', color='gold')  # path
     
     # Draw the obstacles
-    obstacle.plot_obstacle(ax)
+    # obstacle.plot_obstacle(ax)
 
     empty              = ([], [])
     target,            = ax.plot(*empty, '+r')
@@ -303,6 +313,7 @@ def main():
         sim=sim,
         path=path,
         car=car,
+        ctrl=controller,
         car_outline=car_outline,
         front_right_wheel=front_right_wheel,
         front_left_wheel=front_left_wheel,
