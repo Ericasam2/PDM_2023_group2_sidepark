@@ -129,7 +129,7 @@ class Car:
             required_acceleration = 0
             self.velocity = 0
             self.goal_number += 1
-            self.drive()
+            # self.drive()
         else:
             # Adjust acceleration based on position in the path
             if current_position <= halfway_point:

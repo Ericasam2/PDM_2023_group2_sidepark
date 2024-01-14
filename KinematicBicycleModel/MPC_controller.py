@@ -12,6 +12,7 @@ from casadi import cos, sin, tan, atan, acos, fmod, sqrt, hypot
 from matplotlib import rcParams
 from libs import normalise_angle
 from csv import reader
+from sklearn.metrics import mean_squared_error
 
 
 class Path:
@@ -107,6 +108,10 @@ class MPC_controller:
         self.pyaw = path_yaw
         self.vehicle = vehicle
         self.terminate = 0
+        
+        # error
+        self.distance_error = []
+        self.heading_error = []
     
 
     def mpc_setting(self):
@@ -166,7 +171,20 @@ class MPC_controller:
         
         yaw_error = normalise_angle(self.pyaw[target_index] - yaw)
 
-        return target_index
+        return target_index, dx[target_index], dy[target_index], d[target_index]
+    
+    def find_nearest_path_id(self, x, y, yaw):  
+
+        # Calculate position of the front axle
+
+        dx = x - self.px    # Find the x-axis of the front axle relative to the path
+        dy = y - self.py    # Find the y-axis of the front axle relative to the path
+        
+
+        d = np.hypot(dx, dy) # Find the distance from the front axle to the path
+        target_index = np.argmin(d) # Find the shortest distance in the array
+        
+        return target_index, dx[target_index], dy[target_index], d[target_index]
     
     def error_function(self):
         # define the error function
@@ -185,6 +203,15 @@ class MPC_controller:
         return 10*x_error + 10*y_error + 10*yaw_error + 10 * vel_error 
         # return 30*x_error + 1*y_error + 500*yaw_error + 1* vel_error 
     
+    def terminal_error_function(self):
+        # define the error function
+        # define according to the application
+        x_error = (self.model.x["position_x"] - self.px[-1])**2
+        y_error = (self.model.x["position_y"] - self.py[-1])**2
+        yaw_error = (fmod((self.model.x["yaw"] - self.pyaw[-1]) + 101*pi, 2*pi) - pi)**2
+        vel_error = (self.model.x["velocity"] - 0)**2
+        return 10*x_error + 10*y_error + 10*yaw_error + 100 * vel_error 
+    
     def model_setup(self):
         
         # mpc setting
@@ -194,6 +221,7 @@ class MPC_controller:
         self.mpc_dynamics()
 
         self.model.set_expression('cost', self.error_function())
+        # self.model.set_expression('terminal cost', self.terminal_error_function())
          
         # Build the model
         self.model.setup()
@@ -252,33 +280,41 @@ class MPC_controller:
         
         return self.model, mpc, estimator, simulator
     
+    def calculate_crosstrack_term(self, yaw, dx, dy, absolute_error):
+        front_axle_vector = np.array([sin(yaw), -cos(yaw)])
+        nearest_path_vector = np.array([dx, dy])
+        crosstrack_error = np.sign(nearest_path_vector@front_axle_vector) * absolute_error
+        return crosstrack_error
+    
+    def calculate_yaw_term(self, target_index, yaw):
+        yaw_error = normalise_angle(self.pyaw[target_index] - yaw)
+        return yaw_error
     
     # cost function
-    def update_reference(self, x, y, yaw, v, t):
+    def update_reference(self, x, y, yaw, v, time):
         # print(x)
         # print(y)
         # print(yaw)
         
         # find the target point
-        target_index = self.find_target_path_id(x, y, yaw)
+        target_index, _, _, _ = self.find_target_path_id(x, y, yaw)
         target_x = self.px[target_index]
         target_y = self.py[target_index]
         target_yaw = self.pyaw[target_index]
         
-        # cost
-        if target_index == len(self.px):
-            target_v = 0
-            self.terminate = 1
-        # elif target_index >= len(self.px) - 10:
-        #     target_v = float(v) - 1/10 * 5
-        else:
-            target_v = 1
-            # target_v = min(5, float(v) + 0.5 * t)
-            self.terminate = 0
+        # error
+        nearest_index, dx, dy, absolute_error = self.find_nearest_path_id(x, y, yaw)
+        crosstrack_error = self.calculate_crosstrack_term(yaw, dx, dy, absolute_error)
+        yaw_error = self.calculate_yaw_term(nearest_index, yaw)
+        self.distance_error.append(crosstrack_error)
+        self.heading_error.append(yaw_error)
+        
+        # determine the velocity control
+        target_v = min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
+        
         self.target_state = np.array([target_x, target_y, target_yaw, target_v])
         
-        
-    
+
 def main():
     X = []
     Y = []
@@ -289,8 +325,9 @@ def main():
     target_Y = []
     target_YAW = []
     path = Path()
-    car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px, path.py, path.pyaw, 1/50)
-    controller = MPC_controller(car.kinematic_bicycle_model, path.px, path.py, path.pyaw)
+    goal_idx = 1000
+    car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px[:goal_idx], path.py[:goal_idx], path.pyaw[:goal_idx], 1/50)
+    controller = MPC_controller(car.kinematic_bicycle_model, path.px[:goal_idx], path.py[:goal_idx], path.pyaw[:goal_idx])
     initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
     current_state = initial_state
     np.random.seed(99)
@@ -314,18 +351,15 @@ def main():
     estimator.x0 = x0  
     # Use initial state to set the initial guess.
     mpc.set_initial_guess()
-    N = 8000
+    N = 1000
     for t in range(1, N):
         # control horizon
-        n_steps = 1
-        for k in range(n_steps):
-            u0 = mpc.make_step(x0)
-            y_next = simulator.make_step(u0)
-            x0 = estimator.make_step(y_next)
-            # if (float(x0[0]) - float(controller.target_state[0]))**2 + (float(x0[1]) - float(controller.target_state[1]))**2 < 0.1:
-            #     continue
+        u0 = mpc.make_step(x0)
+        y_next = simulator.make_step(u0)
+        x0 = estimator.make_step(y_next)
         current_state = x0
-        controller.update_reference(current_state[0], current_state[1], current_state[2], current_state[3], t)
+        controller.update_reference(current_state[0], current_state[1], current_state[2], current_state[3], car.time)
+        car.time += car.delta_time
         # save states
         X.append(float(current_state[0]))
         Y.append(float(current_state[1]))
@@ -335,18 +369,24 @@ def main():
         target_X.append(float(controller.target_state[0]))
         target_Y.append(float(controller.target_state[1]))
         target_YAW.append(float(controller.target_state[2]))
+        
+        if controller.terminate == 1:
+            N = t
+            print("Car reach the terminal state!")
+            break
     
     # rcParams['axes.grid'] = True
     # rcParams['font.size'] = 18
 
     tspam = [i for i in range(N) ]
+    plt.figure()
     plt.subplot(3,2,1)
     plt.plot(tspam, X)
     plt.ylabel("X")
     plt.xlabel("t")
     plt.subplot(3,2,2)
     plt.plot(X,Y)
-    plt.plot(path.px[:N], path.py[:N])
+    plt.plot(path.px[:goal_idx], path.py[:goal_idx])
     plt.legend(["car", "path"])
     plt.subplot(3,2,3)
     plt.plot(tspam, V)
@@ -363,6 +403,36 @@ def main():
     plt.plot(tspam, target_YAW)
     plt.ylabel("target YAW")
     plt.legend(["YAW", "target YAW"])
+    
+    # Create a 2x1 grid of subplots
+    fig, axs = plt.subplots(2, 1, figsize=(8, 6))
+
+    # Plot distance error on the first subplot
+    axs[0].plot(range(len(controller.distance_error)), controller.distance_error, linewidth=2, label='Distance Error')
+    axs[0].set_xlabel("Index")
+    axs[0].set_ylabel("Distance Error [m]")
+    err_distance = mean_squared_error(np.zeros(len(controller.distance_error)), controller.distance_error)
+    axs[0].text(0.95, 0.95, f'RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
+    axs[0].legend()
+
+    # Plot heading error on the second subplot
+    axs[1].plot(range(len(controller.heading_error)), controller.heading_error, linewidth=2, label='Heading Error')
+    axs[1].set_xlabel("Index")
+    axs[1].set_ylabel("Heading Error [rad]")
+    err_heading = mean_squared_error(np.zeros(len(controller.heading_error)), controller.heading_error)
+    axs[1].text(0.95, 0.95, f'RMSE: {err_heading:.2f} [rad]', transform=axs[1].transAxes, ha='right', va='top', fontsize=10)
+    axs[1].legend()
+
+    # Set the title for the entire figure
+    fig.suptitle("The tracking error of the MPC controller with sin-Wave path")
+
+    # Adjust layout for better spacing
+    plt.tight_layout()
+
+    # Save the plot to a file (e.g., PNG format)
+    plt.savefig('tracking_error_plot.png')
+
+    # Show the plots
     plt.show()
     
     
