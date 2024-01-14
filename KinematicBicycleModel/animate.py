@@ -122,14 +122,16 @@ class Car:
                     path_length[i] = j
         
         halfway_point = path_length[self.goal_number] // 2
-        current_position = self.target_id  
+        if self.goal_number > 0:
+            current_position = self.target_id - path_length[self.goal_number-1] 
+        else: 
+            current_position = self.target_id
 
         if remaining_distance <= 2:
-            # Close to the target, stop the car
             required_acceleration = 0
             self.velocity = 0
-            self.goal_number += 1
-            self.drive()
+            self.goal_reached = True  # Set a flag indicating the goal is reached
+            
         else:
             # Adjust acceleration based on position in the path
             if current_position <= halfway_point:
@@ -138,8 +140,13 @@ class Car:
             else:
                 # Decelerate after halfway point
                 required_acceleration = -self.velocity**2 / (2 * remaining_distance-2)
+        
+        if self.goal_number == 1:
+            acceleration = - required_acceleration
+        else:
+            acceleration = required_acceleration
 
-        return required_acceleration
+        return acceleration
 
 
     def plot_car(self):
@@ -149,10 +156,17 @@ class Car:
 
     def drive(self):
     
-        if self.y < self.goals[self.goal_number, 1]:
-            acceleration = self.get_required_acceleration()
+        if not self.goal_reached:
+                acceleration = self.get_required_acceleration()
         else:
-            acceleration = - self.get_required_acceleration()
+            self.goal_number += 1  # Move to next goal
+            self.goal_reached = False  # Reset flag
+            if self.goal_number == 2:
+                acceleration = 0
+            else:
+                acceleration = self.get_required_acceleration()
+            
+        
         
         self.wheel_angle, self.target_id, self.crosstrack_error = self.tracker.stanley_control(
             self.x, self.y, self.yaw, self.velocity, self.wheel_angle
@@ -332,27 +346,48 @@ def main():
     interval = sim.dt * 10**3
 
 
-    plt.figure()  
+    # Create subplots
+    plt.figure(num='RRT* and smoothing', figsize=(12, 5))  
+
+    # Subplot 1: RRT* plots
+    plt.subplot(1, 2, 1)
     plt.xlim(-25, 25)
     plt.ylim(-25, 25)
     rrt.plot_tree()
     rrt2.plot_tree()
     rrt3.plot_tree()
-    
     plt.legend(labels=['RRT* vertices', 'edges'])
-    plt.show()
 
-    plt.figure()  
+    # Plot obstacles in blue
+    for obs in obstacles:
+        plt.gca().add_patch(plt.Rectangle((obs[0], obs[1]), obs[2] - obs[0], obs[3] - obs[1], color='blue', alpha=0.3))
+
+    plt.title('RRT* Plots')
+
+    # Subplot 2: Path plots
+    plt.subplot(1, 2, 2)
     plt.xlim(-25, 25)
     plt.ylim(-25, 25)
-    
     plt.plot(path.px, path.py, '--', color='red', label='path')  # path
     plt.plot(path2.px, path2.py, '--', color='red')  # path
     plt.plot(path3.px, path3.py, '--', color='red')  # path
-
     plt.legend()
-    plt.show()
 
+    # Plot obstacles in blue
+    for obs in obstacles:
+        plt.gca().add_patch(plt.Rectangle((obs[0], obs[1]), obs[2] - obs[0], obs[3] - obs[1], color='blue', alpha=0.3))
+
+    plt.title('Path Plots')
+
+    # Add titles to the entire figure
+    plt.suptitle('Combined RRT* and Path Plots')
+
+
+    # Adjust layout for better spacing
+    plt.tight_layout()
+
+    # Show the figure
+    plt.show()
 
     fig = plt.figure()
     ax = plt.axes()
@@ -392,7 +427,7 @@ def main():
         target=target
     )]
 
-    #_ = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
+    _ = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
     
     plt.grid()
     plt.show()
