@@ -2,6 +2,9 @@
 # file 'LICENSE', which is part of this source code package.
 from operator import itemgetter
 
+from matplotlib import pyplot as plt
+import numpy as np
+
 from RRT_star.heuristics import cost_to_go
 from RRT_star.heuristics import segment_cost, path_cost
 from RRT_star.rrt import RRT
@@ -81,6 +84,9 @@ class RRTStar(RRT):
 
         # max valid rewire count
         return min(self.trees[tree].V_count, self.rewire_count)
+    
+
+
 
     def rrt_star(self):
         """
@@ -109,5 +115,29 @@ class RRTStar(RRT):
                         self.rewire(0, x_new, L_near)
 
                     solution = self.check_solution()
-                    if solution[0]:
-                        return solution[1]
+                if solution[0]:
+                    return solution[1]
+    
+    def plot_tree(self):
+        all_points = []
+        for tree in self.trees:
+            for start, end in tree.E.items():
+                all_points.append(start)
+                if end is not None:
+                    all_points.append(end)
+
+        all_points = np.array(all_points)
+
+        # Scatter all points
+        plt.scatter(all_points[:, 0], all_points[:, 1], c='blue')
+
+        # Plot edges
+        for i, tree in enumerate(self.trees):
+            for start, end in tree.E.items():
+                if end is not None:
+                    plt.plot([start[0], end[0]], [start[1], end[1]], c='black', linewidth=0.5)
+
+       
+
+
+

@@ -1,28 +1,28 @@
 import numpy as np
-
 from numpy.typing import ArrayLike
 from scipy.interpolate import CubicSpline
 
 def initialise_cubic_spline(x: ArrayLike, y: ArrayLike, ds: float, bc_type: str) -> tuple[CubicSpline, np.ndarray]:
-
     distance = np.concatenate((np.zeros(1), np.cumsum(np.hypot(np.ediff1d(x), np.ediff1d(y)))))
     points = np.array([x, y]).T
     s = np.arange(0, distance[-1], ds)
-    
+
     try:
         cs = CubicSpline(distance, points, bc_type=bc_type, axis=0, extrapolate=False)
-        
     except ValueError as e:
         raise ValueError(f"{e} If you are getting a sequence error, do check if your input dataset contains consecutive duplicate(s).")
- 
+
     return cs, s
 
 def generate_cubic_spline(x: ArrayLike, y: ArrayLike, ds: float=0.05, bc_type: str='natural') -> tuple[np.ndarray, ...]:
-    
     cs, s = initialise_cubic_spline(x, y, ds, bc_type)
 
     dx, dy = cs.derivative(1)(s).T
     yaw = np.arctan2(dy, dx)
+
+    # Set yaw at the beginning and end to np.pi/2
+    yaw[0] = np.pi/2
+    yaw[-1] = np.pi/2
 
     ddx, ddy = cs.derivative(2)(s).T
     curvature = (ddy*dx - ddx*dy) / ((dx*dx + dy*dy)**1.5)

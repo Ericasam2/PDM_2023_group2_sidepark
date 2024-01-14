@@ -21,33 +21,50 @@ class Simulation:
         fps = 50.0
 
         self.dt = 1/fps
-        self.map_size_x = 70
-        self.map_size_y = 40
+        self.map_size_x = 25
+        self.map_size_y = 25
         self.frames = 1000  # simulation horizon
         self.loop = False
 
 
 class Path:
 
-    def __init__(self, searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count):
+    def __init__(self, rrt):
 
         # RRTstar
-        rrt = RRTStar(searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count)
         x = rrt.rrt_star()
         path = np.array(x)
-        print(path)
-        
+        ds = 0.005
 
-        ds = 0.05
-        
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(path[:,0], path[:,1], ds)
 
+    def path_append(self, path2, path3):
+
+        goals = np.zeros([3,3])
+        goals[0,:] = [self.px[-1], self.py[-1], self.pyaw[-1]]
+
+        self.px = np.append(self.px, path2.px[1:])
+        self.py = np.append(self.py, path2.py[1:])
+        self.pyaw = np.append(self.pyaw, path2.pyaw[1:])
+        
+        goals[1,:] = [self.px[-1], self.py[-1], self.pyaw[-1]]
+
+        self.px = np.append(self.px, path3.px[1:])
+        self.py = np.append(self.py, path3.py[1:])
+        self.pyaw = np.append(self.pyaw, path3.pyaw[1:])
+
+        goals[2,:] = [self.px[-1], self.py[-1], self.pyaw[-1]]
+
+        return goals
+             
 
 class Car:
 
-    def __init__(self, init_x, init_y, init_yaw, px, py, pyaw, delta_time):
+    def __init__(self, init_x, init_y, init_yaw, px, py, pyaw, delta_time, goals):
 
         # Model parameters
+        self.x_init = init_x
+        self.y_init = init_y
         self.x = init_x  # x coordinate
         self.y = init_y  # y coordinate
         self.yaw = init_yaw  # orientation
@@ -59,10 +76,13 @@ class Car:
         max_steer = radians(33)
         wheelbase = 2.96
 
+        self.goals = goals
+        self.goal_number = 0
+
         # Acceleration parameters
-        target_velocity = 10.0
-        self.time_to_reach_target_velocity = 5.0
-        self.required_acceleration = target_velocity / self.time_to_reach_target_velocity
+        self.target_velocity = 5.0
+        self.time_to_reach_target_velocity = 2.0
+        self.required_acceleration = self.target_velocity / self.time_to_reach_target_velocity
 
         # Tracker parameters
         self.px = px
@@ -73,7 +93,8 @@ class Car:
         self.kyaw = 0.01
         self.ksteer = 0.0
         self.crosstrack_error = None
-        self.target_id = None
+        self.target_id = 0
+        self.goal_reached = False
 
         # Description parameters
         self.colour = 'black'
@@ -89,12 +110,37 @@ class Car:
         self.kinematic_bicycle_model = KinematicBicycleModel(wheelbase, max_steer, self.delta_time)
         self.description = CarDescription(overall_length, overall_width, rear_overhang, tyre_diameter, tyre_width, axle_track, wheelbase)
 
-    
-    def get_required_acceleration(self):
 
-        self.time += self.delta_time
-        return self.required_acceleration
-    
+    def get_required_acceleration(self):
+        remaining_distance = np.linalg.norm([self.x - self.goals[self.goal_number, 0], self.y - self.goals[self.goal_number, 1]])
+        
+        path_length = np.zeros((3))
+
+        for i in range(self.goals.shape[0]):
+            for j in range(self.px.shape[0]):
+                if self.px[j] == self.goals[i, 0]:
+                    path_length[i] = j
+        
+        halfway_point = path_length[self.goal_number] // 2
+        current_position = self.target_id  
+
+        if remaining_distance <= 2:
+            # Close to the target, stop the car
+            required_acceleration = 0
+            self.velocity = 0
+            self.goal_number += 1
+            self.drive()
+        else:
+            # Adjust acceleration based on position in the path
+            if current_position <= halfway_point:
+                # Accelerate towards halfway point
+                required_acceleration = (self.target_velocity - self.velocity) / self.time_to_reach_target_velocity
+            else:
+                # Decelerate after halfway point
+                required_acceleration = -self.velocity**2 / (2 * remaining_distance-2)
+
+        return required_acceleration
+
 
     def plot_car(self):
         
@@ -102,12 +148,22 @@ class Car:
 
 
     def drive(self):
+    
+        if self.y < self.goals[self.goal_number, 1]:
+            acceleration = self.get_required_acceleration()
+        else:
+            acceleration = - self.get_required_acceleration()
         
-        acceleration = 0 if self.time > self.time_to_reach_target_velocity else self.get_required_acceleration()
-        self.wheel_angle, self.target_id, self.crosstrack_error = self.tracker.stanley_control(self.x, self.y, self.yaw, self.velocity, self.wheel_angle)
-        self.x, self.y, self.yaw, self.velocity, _, _ = self.kinematic_bicycle_model.update(self.x, self.y, self.yaw, self.velocity, acceleration, self.wheel_angle)
+        self.wheel_angle, self.target_id, self.crosstrack_error = self.tracker.stanley_control(
+            self.x, self.y, self.yaw, self.velocity, self.wheel_angle
+        )
+        self.x, self.y, self.yaw, self.velocity, _, _ = self.kinematic_bicycle_model.update(
+            self.x, self.y, self.yaw, self.velocity, acceleration, self.wheel_angle
+        )
 
-        print(f"Cross-track term: {self.crosstrack_error}{' '*10}", end="\r")
+        print(f"Cross-track term: {self.crosstrack_error}{' ' * 10}", end="\r")
+
+
 
 class StaticObstacle:
     
@@ -149,7 +205,7 @@ class StaticObstacle:
 
     def get_obstacle(self):
         # Get static obstacle data
-        data_path = 'data/static_obstacles.csv'
+        data_path = 'PDM_2023_group2_sidepark\KinematicBicycleModel\data\static_obstacles.csv'
         with open(data_path, newline='') as f:
             rows = list(reader(f, delimiter=','))[1:-1]
         self.number = len(rows)
@@ -191,23 +247,18 @@ class Fargs:
    
 
 def animate(frame, fargs):
-
-    ax                = fargs.ax
-    sim               = fargs.sim
-    path              = fargs.path
-    car               = fargs.car
-    car_outline       = fargs.car_outline
+    ax = fargs.ax
+    sim = fargs.sim
+    car = fargs.car    
+    car_outline = fargs.car_outline
+    path = fargs.path
     front_right_wheel = fargs.front_right_wheel
-    front_left_wheel  = fargs.front_left_wheel
-    rear_right_wheel  = fargs.rear_right_wheel
-    rear_left_wheel   = fargs.rear_left_wheel
-    rear_axle         = fargs.rear_axle
-    annotation        = fargs.annotation
-    target            = fargs.target
-
-    # Camera tracks car
-    ax.set_xlim(car.x - sim.map_size_x, car.x + sim.map_size_x)
-    ax.set_ylim(car.y - sim.map_size_y, car.y + sim.map_size_y)
+    rear_right_wheel = fargs.rear_right_wheel
+    front_left_wheel = fargs.front_left_wheel
+    rear_left_wheel = fargs.rear_left_wheel
+    rear_axle = fargs.rear_axle
+    annotation = fargs.annotation
+    target = fargs.target
 
     # Drive and draw car
     car.drive()
@@ -219,57 +270,106 @@ def animate(frame, fargs):
     rear_left_wheel.set_data(*rl_plot)
     rear_axle.set_data(car.x, car.y)
 
+    plt.title(f'{sim.dt*frame:.2f}s', loc='right')
+    plt.xlabel(f'Speed: {car.velocity:.2f} m/s', loc='left')
+
     # Show car's target
     target.set_data(path.px[car.target_id], path.py[car.target_id])
 
     # Annotate car's coordinate above car
     annotation.set_text(f'{car.x:.1f}, {car.y:.1f}')
     annotation.set_position((car.x, car.y + 5))
+    
 
-    plt.title(f'{sim.dt*frame:.2f}s', loc='right')
-    plt.xlabel(f'Speed: {car.velocity:.2f} m/s', loc='left')
-    # plt.savefig(f'image/visualisation_{frame:03}.png', dpi=300)
+    # Check if the car has reached the goal
+    goal_reached = np.linalg.norm([car.x - path.px[-1], car.y - path.py[-1]]) < 2
+
+    if goal_reached:
+        plt.title("Goal Reached!", loc='center')
+
+        plt.grid()
+        plt.pause(1)  # Pause for a moment before stopping the animation
+
+        # Set repeat to False to stop the animation
+        plt.close()
+        sim.loop = False
 
     return car_outline, front_right_wheel, rear_right_wheel, front_left_wheel, rear_left_wheel, rear_axle, target,
-
+ 
 
 def main():
     
     sim  = Simulation()
-    X_dimesions = np.array([(0, 100), (0, 100)])
-    searchspace = SearchSpace(X_dimesions, None)
-    x_init = (0, 0)  # starting location
-    x_goal = (100, 100)  # goal location
+    X_dimesions = np.array([(-25, 25), (-25, 25)])
+    obstacles = np.array([(-25,-25,-5,25), (5,-25,25,25), (1.75, 17.5, 4.25, 22.5)])
+    searchspace = SearchSpace(X_dimesions, obstacles)
+    start1 = (-2.5, -20)
+    goal1 = (-0.75, 21.5)
+    start2 = (-0.75, 21.5)
+    goal2 = (2.5, 10)
+    start3 = (2.5, 10)  # starting location
+    goal3 = (2.5, 15)  # goal location
 
     Q = np.array([(1, 1)])  # length of tree edges
-    r = 1  # length of smallest edge to check for intersection with obstacles
+    r = 0.25  # length of smallest edge to check for intersection with obstacles
     max_samples = 2048  # max number of samples to take before timing out
     rewire_count = 32  # optional, number of nearby branches to rewire
     prc = 0.1  # probability of checking for a connection to goal
 
-    # rrt = RRTStar(searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count)
-    # path = rrt.rrt_star()
+    rrt = RRTStar(searchspace, Q, start1, goal1, max_samples, r, prc, rewire_count)
+    rrt2 = RRTStar(searchspace, Q, start2, goal2, max_samples, r, prc, rewire_count)
+    rrt3 = RRTStar(searchspace, Q, start3, goal3, max_samples, r, prc, rewire_count)
 
-    path = Path(searchspace, Q, x_init, x_goal, max_samples, r, prc, rewire_count)
-    car  = Car(x_init[0], x_init[1], 0, path.px, path.py, path.pyaw, sim.dt)
+
+    path = Path(rrt)
+    path2 = Path(rrt2)
+    path3 = Path(rrt3)
+
+    goals = path.path_append(path2, path3)
+
+    car  = Car(start1[0], start1[1], np.pi/2, path.px, path.py, path.pyaw, sim.dt, goals)
 
     interval = sim.dt * 10**3
+
+
+    plt.figure()  
+    plt.xlim(-25, 25)
+    plt.ylim(-25, 25)
+    rrt.plot_tree()
+    rrt2.plot_tree()
+    rrt3.plot_tree()
+    
+    plt.legend(labels=['RRT* vertices', 'edges'])
+    plt.show()
+
+    plt.figure()  
+    plt.xlim(-25, 25)
+    plt.ylim(-25, 25)
+    
+    plt.plot(path.px, path.py, '--', color='red', label='path')  # path
+    plt.plot(path2.px, path2.py, '--', color='red')  # path
+    plt.plot(path3.px, path3.py, '--', color='red')  # path
+
+    plt.legend()
+    plt.show()
+
 
     fig = plt.figure()
     ax = plt.axes()
     ax.set_aspect('equal')
 
-    # Draw the path and road
-    # road = plt.Circle((0, 0), 50, color='gray', fill=False, linewidth=30)  # road
-    # ax.add_patch(road)
     ax.plot(path.px, path.py, '--', color='gold')  # path
+    ax.plot(path2.px, path2.py, '--', color='gold')  # path
+    ax.plot(path3.px, path3.py, '--', color='gold')  # path
     
     # Draw the obstacles
-    # obstacle.plot_obstacle(ax)
+    obstacle = StaticObstacle()
+    obstacle.get_obstacle()
+    obstacle.plot_obstacle(ax)
 
     empty              = ([], [])
     target,            = ax.plot(*empty, '+r')
-    car_outline,       = ax.plot(*empty, color=car.colour)
+    car_outline,       = ax.plot(*empty, color= 'red')
     front_right_wheel, = ax.plot(*empty, color=car.colour)
     rear_right_wheel,  = ax.plot(*empty, color=car.colour)
     front_left_wheel,  = ax.plot(*empty, color=car.colour)
@@ -292,12 +392,13 @@ def main():
         target=target
     )]
 
-    _ = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
+    #_ = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
     
     plt.grid()
     plt.show()
     # anim.save('animation.gif', writer='imagemagick', fps=50)
 
+    
 
 
 
