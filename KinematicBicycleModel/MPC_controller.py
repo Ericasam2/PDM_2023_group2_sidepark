@@ -48,9 +48,10 @@ class Car:
         wheelbase = 2.96
 
         # Acceleration parameters
-        target_velocity = 10.0
+        
+        self.target_velocity = 5.0
         self.time_to_reach_target_velocity = 5.0
-        self.required_acceleration = target_velocity / self.time_to_reach_target_velocity
+        self.required_acceleration = self.target_velocity / self.time_to_reach_target_velocity
 
         # Tracker parameters
         self.px = px
@@ -87,12 +88,41 @@ class Car:
         
         return self.description.plot_car(self.x, self.y, self.yaw, self.wheel_angle)
 
+    def find_nearest_path_id(self, x, y, yaw):  
+
+        # Calculate position of the front axle
+
+        dx = x - self.px    # Find the x-axis of the front axle relative to the path
+        dy = y - self.py    # Find the y-axis of the front axle relative to the path
+        
+
+        d = np.hypot(dx, dy) # Find the distance from the front axle to the path
+        target_index = np.argmin(d) # Find the shortest distance in the array
+        
+        return target_index, dx[target_index], dy[target_index], d[target_index]
+    
+    def calculate_crosstrack_term(self, yaw, dx, dy, absolute_error):
+        front_axle_vector = np.array([sin(yaw), -cos(yaw)])
+        nearest_path_vector = np.array([dx, dy])
+        crosstrack_error = np.sign(nearest_path_vector@front_axle_vector) * absolute_error
+        return crosstrack_error
+    
+    def calculate_yaw_term(self, target_index, yaw):
+        yaw_error = normalise_angle(self.pyaw[target_index] - yaw)
+        return yaw_error
 
     def drive(self):
         
         acceleration = 0 if self.time > self.time_to_reach_target_velocity else self.get_required_acceleration()
+        if (sqrt((self.x - self.px[-1])**2 + (self.x - self.px[-1])**2) <= 6):
+            if self.velocity > 0:
+                acceleration = -2 * self.required_acceleration
+            else:
+                acceleration = 0
+        print(self.time)
         self.wheel_angle, self.target_id, self.crosstrack_error = self.tracker.stanley_control(self.x, self.y, self.yaw, self.velocity, self.wheel_angle)
-        self.x, self.y, self.yaw, self.velocity, _, _ = self.kinematic_bicycle_model.update(self.x, self.y, self.yaw, self.velocity, acceleration, self.wheel_angle)
+        print(self.target_id)
+        self.x, self.y, self.yaw, self.velocity = self.kinematic_bicycle_model.dt_update(self.x, self.y, self.yaw, self.velocity, acceleration, self.wheel_angle)
 
         print(f"Cross-track term: {self.crosstrack_error}{' '*10}", end="\r")
         
@@ -185,6 +215,12 @@ class MPC_controller:
         target_index = np.argmin(d) # Find the shortest distance in the array
         
         return target_index, dx[target_index], dy[target_index], d[target_index]
+    
+    def calculate_crosstrack_term(self, yaw, dx, dy, absolute_error):
+        front_axle_vector = np.array([sin(yaw), -cos(yaw)])
+        nearest_path_vector = np.array([dx, dy])
+        crosstrack_error = np.sign(nearest_path_vector@front_axle_vector) * absolute_error
+        return crosstrack_error
     
     def error_function(self):
         # define the error function
@@ -315,7 +351,7 @@ class MPC_controller:
         self.target_state = np.array([target_x, target_y, target_yaw, target_v])
         
 
-def main():
+def MPC_drive_and_plot():
     X = []
     Y = []
     YAW = []
@@ -325,7 +361,7 @@ def main():
     target_Y = []
     target_YAW = []
     path = Path()
-    goal_idx = 1000
+    goal_idx = 4000
     car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px[:goal_idx], path.py[:goal_idx], path.pyaw[:goal_idx], 1/50)
     controller = MPC_controller(car.kinematic_bicycle_model, path.px[:goal_idx], path.py[:goal_idx], path.pyaw[:goal_idx])
     initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
@@ -351,7 +387,7 @@ def main():
     estimator.x0 = x0  
     # Use initial state to set the initial guess.
     mpc.set_initial_guess()
-    N = 1000
+    N = 2000
     for t in range(1, N):
         # control horizon
         u0 = mpc.make_step(x0)
@@ -374,56 +410,78 @@ def main():
             N = t
             print("Car reach the terminal state!")
             break
+        
+        
     
     # rcParams['axes.grid'] = True
     # rcParams['font.size'] = 18
 
+    # Create subplots
+    fig, axs = plt.subplots(2,2, figsize=(12, 12))
     tspam = [i for i in range(N) ]
-    plt.figure()
-    plt.subplot(3,2,1)
-    plt.plot(tspam, X)
-    plt.ylabel("X")
-    plt.xlabel("t")
-    plt.subplot(3,2,2)
-    plt.plot(X,Y)
-    plt.plot(path.px[:goal_idx], path.py[:goal_idx])
-    plt.legend(["car", "path"])
-    plt.subplot(3,2,3)
-    plt.plot(tspam, V)
-    plt.ylabel("V")
-    plt.subplot(3,2,4)
-    plt.plot(tspam, target_X)
-    plt.ylabel("target X")
-    plt.xlabel("t")
-    plt.subplot(3,2,5)
-    plt.plot(tspam, target_V)
-    plt.ylabel("target V")
-    plt.subplot(3,2,6)
-    plt.plot(tspam, YAW)
-    plt.plot(tspam, target_YAW)
-    plt.ylabel("target YAW")
-    plt.legend(["YAW", "target YAW"])
+
+    # Subplot 1: (X,Y) and (path.px, path.py)
+    axs[0,0].plot(X, Y, linewidth=2)
+    axs[0,0].plot(path.px[:goal_idx], path.py[:goal_idx], "--", linewidth=2)
+    axs[0,0].scatter(X[-1], Y[-1], color='blue', s=50)  # Mark the final state
+    axs[0,0].set_title("Position control using MPC controller", fontsize=14)
+    axs[0,0].set_xlabel("X", fontsize=12)
+    axs[0,0].set_ylabel("Y", fontsize=12)
+    axs[0,0].legend(["Car", "Path", "Final Position"], fontsize=10)
+
+    # Subplot 2: Velocity (V) and Target Velocity (target_V)
+    axs[0,1].plot(tspam, V, linewidth=2)
+    axs[0,1].plot(tspam, target_V, "--", linewidth=2)
+    axs[0,1].set_title("Velocity control using MPC controller", fontsize=14)
+    axs[0,1].set_xlabel("Control steps", fontsize=12)
+    axs[0,1].set_ylabel("Velocity", fontsize=12)
+    axs[0,1].legend(["Car Velocity", "Target Velocity"], fontsize=10)
+
+    # Subplot 3: YAW and path.pyaw
+    axs[1,0].plot(tspam, YAW, linewidth=2)
+    axs[1,0].scatter(tspam[-1], YAW[-1], color='blue', s=50)  # Mark the final state
+    axs[1,0].set_title("Yaw control using MPC controller", fontsize=14)
+    axs[1,0].set_xlabel("Control steps", fontsize=12)
+    axs[1,0].set_ylabel("YAW", fontsize=12)
+    axs[1,0].legend(["Car YAW", "Final YAW"], fontsize=10)
+    
+    # Subplot 4: YAW and path.pyaw
+    axs[1,1].plot([i for i in range(goal_idx)], path.pyaw[:goal_idx], "--", color='orange',linewidth=2)
+    axs[1,1].set_title("Yaw on path", fontsize=14)
+    axs[1,1].set_xlabel("waypoint index", fontsize=12)
+    axs[1,1].set_ylabel("path", fontsize=12)
+    
+    # Add big title
+    fig.suptitle("The MPC performance on reference tracking sin-Wave", fontsize=16)
+
+    # Improve layout
+    fig.tight_layout()
+
+    # Save the figure to a file (e.g., PNG format)
+    plt.savefig('mpc_performance_plot.png')
     
     # Create a 2x1 grid of subplots
     fig, axs = plt.subplots(2, 1, figsize=(8, 6))
 
     # Plot distance error on the first subplot
     axs[0].plot(range(len(controller.distance_error)), controller.distance_error, linewidth=2, label='Distance Error')
-    axs[0].set_xlabel("Index")
+    axs[0].set_xlabel("Control steps")
     axs[0].set_ylabel("Distance Error [m]")
     err_distance = mean_squared_error(np.zeros(len(controller.distance_error)), controller.distance_error)
-    final_x_err = 
-    axs[0].text(0.95, 0.95, f'RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
-    axs[0].text(0.95, 0.95, f'RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
-    axs[0].legend()
+    final_x_err = np.abs(X[-1] - path.px[goal_idx])
+    final_y_err = np.abs(Y[-1] - path.py[goal_idx])
+    axs[0].text(0.95, 0.95, f'Distance Error RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
+    axs[0].text(0.95, 0.85, f'Final X_err: {final_x_err:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
+    axs[0].text(0.95, 0.75, f'Final Y_err: {final_y_err:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
 
     # Plot heading error on the second subplot
     axs[1].plot(range(len(controller.heading_error)), controller.heading_error, linewidth=2, label='Heading Error')
-    axs[1].set_xlabel("Index")
-    axs[1].set_ylabel("Heading Error [rad]")
+    axs[1].set_xlabel("Control steps")
+    axs[1].set_ylabel("Yaw Error [rad]")
     err_heading = mean_squared_error(np.zeros(len(controller.heading_error)), controller.heading_error)
-    axs[1].text(0.95, 0.95, f'RMSE: {err_heading:.2f} [rad]', transform=axs[1].transAxes, ha='right', va='top', fontsize=10)
-    axs[1].legend()
+    final_yaw_err = normalise_angle(path.pyaw[goal_idx] - YAW[-1])
+    axs[1].text(0.95, 0.95, f'Yaw Error RMSE: {err_heading:.2f} [rad]', transform=axs[1].transAxes, ha='right', va='top', fontsize=10)
+    axs[1].text(0.95, 0.85, f'Final Yaw_err: {final_yaw_err:.2f} [rad]', transform=axs[1].transAxes, ha='right', va='top', fontsize=10)
 
     # Set the title for the entire figure
     fig.suptitle("The tracking error of the MPC controller with sin-Wave path")
@@ -436,7 +494,107 @@ def main():
 
     # Show the plots
     plt.show()
+
+def Stanley_drive_and_plot():
+    X = []
+    Y = []
+    YAW = []
+    V = []
+    distance_error = []
+    heading_error = []
+    path = Path()
+    goal_idx = 4000
+    car  = Car(path.px[0], path.py[0], path.pyaw[0], path.px[:goal_idx], path.py[:goal_idx], path.pyaw[:goal_idx], 1/50)
+    initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
+    current_state = initial_state
+    # saved states
+    X.append(initial_state[0])
+    Y.append(initial_state[1])
+    YAW.append(initial_state[2])
+    V.append(initial_state[3])
+    N = 2300
+    for t in range(1, N):
+        car.drive()
+        current_state = np.array([car.x, car.y, car.yaw, car.velocity])
+        X.append(float(current_state[0]))
+        Y.append(float(current_state[1]))
+        YAW.append(float(current_state[2]))
+        V.append(float(current_state[3]))
+        
+        nearest_index, dx, dy, absolute_error = car.find_nearest_path_id(car.x, car.y, car.yaw)
+        crosstrack_error = car.calculate_crosstrack_term(car.yaw, dx, dy, absolute_error)
+        yaw_error = car.calculate_yaw_term(nearest_index, car.yaw)
+        distance_error.append(crosstrack_error)
+        heading_error.append(yaw_error)
+        
+    # Create subplots
+    fig, axs = plt.subplots(2,2, figsize=(12, 12))
+    tspam = [i for i in range(N) ]
+
+    # Subplot 1: (X,Y) and (path.px, path.py)
+    axs[0,0].plot(X, Y, linewidth=2)
+    axs[0,0].plot(path.px[:goal_idx], path.py[:goal_idx], "--", linewidth=2)
+    axs[0,0].scatter(X[-1], Y[-1], color='blue', s=50)  # Mark the final state
+    axs[0,0].set_title("Position control using MPC controller", fontsize=14)
+    axs[0,0].set_xlabel("X", fontsize=12)
+    axs[0,0].set_ylabel("Y", fontsize=12)
+    axs[0,0].legend(["Car", "Path", "Final Position"], fontsize=10)
+
+    # Subplot 3: YAW and path.pyaw
+    axs[1,0].plot(tspam, YAW, linewidth=2)
+    axs[1,0].scatter(tspam[-1], YAW[-1], color='blue', s=50)  # Mark the final state
+    axs[1,0].set_title("Yaw control using MPC controller", fontsize=14)
+    axs[1,0].set_xlabel("Control steps", fontsize=12)
+    axs[1,0].set_ylabel("YAW", fontsize=12)
+    axs[1,0].legend(["Car YAW", "Final YAW"], fontsize=10)
     
+    # Subplot 4: YAW and path.pyaw
+    axs[1,1].plot([i for i in range(goal_idx)], path.pyaw[:goal_idx], "--", color='orange',linewidth=2)
+    axs[1,1].set_title("Yaw on path", fontsize=14)
+    axs[1,1].set_xlabel("waypoint index", fontsize=12)
+    axs[1,1].set_ylabel("path", fontsize=12)
+    
+    # Add big title
+    fig.suptitle("The Stanley Controller performance on reference tracking sin-Wave", fontsize=16)
+
+    # Improve layout
+    fig.tight_layout()
+    
+    # Create a 2x1 grid of subplots
+    fig, axs = plt.subplots(2, 1, figsize=(8, 6))
+
+    # Plot distance error on the first subplot
+    axs[0].plot(range(len(distance_error)), distance_error, linewidth=2, label='Distance Error')
+    axs[0].set_xlabel("Control steps")
+    axs[0].set_ylabel("Distance Error [m]")
+    err_distance = mean_squared_error(np.zeros(len(distance_error)), distance_error)
+    final_x_err = np.abs(X[-1] - path.px[goal_idx])
+    final_y_err = np.abs(Y[-1] - path.py[goal_idx])
+    axs[0].text(0.95, 0.95, f'Distance Error RMSE: {err_distance:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
+    axs[0].text(0.95, 0.85, f'Final X_err: {final_x_err:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
+    axs[0].text(0.95, 0.75, f'Final Y_err: {final_y_err:.2f} [m]', transform=axs[0].transAxes, ha='right', va='top', fontsize=10)
+
+    # Plot heading error on the second subplot
+    axs[1].plot(range(len(heading_error)), heading_error, linewidth=2, label='Heading Error')
+    axs[1].set_xlabel("Control steps")
+    axs[1].set_ylabel("Yaw Error [rad]")
+    err_heading = mean_squared_error(np.zeros(len(heading_error)), heading_error)
+    final_yaw_err = normalise_angle(path.pyaw[goal_idx] - YAW[-1])
+    axs[1].text(0.95, 0.95, f'Yaw Error RMSE: {err_heading:.2f} [rad]', transform=axs[1].transAxes, ha='right', va='top', fontsize=10)
+    axs[1].text(0.95, 0.85, f'Final Yaw_err: {final_yaw_err:.2f} [rad]', transform=axs[1].transAxes, ha='right', va='top', fontsize=10)
+
+    # Set the title for the entire figure
+    fig.suptitle("The tracking error of the Stanley controller with sin-Wave path")
+
+    # Adjust layout for better spacing
+    plt.tight_layout()
+    
+    plt.savefig('tracking_error_plot_stanley.png')
+    plt.show()
+    
+def main():
+    MPC_drive_and_plot()
+    # Stanley_drive_and_plot()
     
 if __name__ == '__main__':
     main()

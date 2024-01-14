@@ -1,28 +1,28 @@
-from math import pi, fmod
-import matplotlib.pyplot as plt
-import numpy as np
+import math
 
-def test1():
-    x_axis = np.linspace(-pi, pi)
-    y_axis = np.zeros_like(x_axis)
-    target = 1/2 * pi
-    for i in range(len(x_axis)):
-        y_axis[i] = fmod((x_axis[i] - target) + pi, 2*pi) - pi
+import sys
 
-    plt.plot(x_axis, y_axis)
-    plt.xlabel("angle")
-    plt.ylabel("error")
-    plt.show()
+
+def equation(v, a, t):
+    u = v - a*t
+    return u
+
+def main():
+    # Check if at least one command-line argument is provided
+    if len(sys.argv) > 1:
+        # Access individual command-line arguments
+        arg1 = sys.argv[1]
+        arg2 = sys.argv[2]
+        arg3 = sys.argv[3]
+    else:
+        print("No command-line arguments provided.")
     
-def test2():
-    x_axis = np.linspace(-2*pi, 2*pi)
-    y_axis = np.zeros_like(x_axis)
-    for i in range(len(x_axis)):
-        y_axis[i] = fmod(x_axis[i] + 11*pi, 2*pi) - pi
-        # y_axis[i] = (x_axis[i] + pi) % (2*pi) - pi
-
-    plt.plot(x_axis, y_axis)
-    plt.xlabel("angle")
-    plt.ylabel("projected")
-    plt.show()
-test2()
+    v = int(arg1)
+    a = int(arg2)
+    t = int(arg3)
+    u = equation(v,a,t)
+    print(u)
+    
+if __name__ == '__main__':
+    main()
+    
