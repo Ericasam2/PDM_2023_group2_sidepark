@@ -1,38 +1,26 @@
-# PDM_2023_group2_sidepark
-## Simulator
-The simulator is based on the [KinematicBicycleModel](https://github.com/winstxnhdw/KinematicBicycleModel/tree/main).
+# Group 2:
+## MPC and RRT* an approach for a single vehicle to parallel parking
+### Simulation
+The simulation is based on the [KinematicBicycleModel](https://github.com/winstxnhdw/KinematicBicycleModel/tree/main).
 
-The way_points is in file `data/sine_wave_waypoints.csv`
-* the current way_points is a sin wave
-* the waypoint can be redefined using `data/generate_waypoints.py`
+The obstacles the simulation uses are stored in the `PDM_2023_group2_sidepark\KinematicBicycleModel\data\static_obstacles.csv` file.
 
-The obstacle is in file `data/static_obstacles.csv`
-* now only the static obstacles are defined
-* circle : (center, radius)
-* rectangle : (vertex, height, width, angle)
+#### Requirement:
+All the requirements can be found in the `requirements.txt` file.
 
-### Requirement: 
-Python >= 3.10\
-numpy >= 1.22.2\
-matplotlib >= 3.5.1\
-scipy >= 1.8.0
 
-### Demo:
+### How to run it:
+1. Clone the repository:
 ```bash
 git clone --recursive https://github.com/Ericasam2/PDM_2023_group2_sidepark.git
 ```
+2. Run the python file from the `KinematicBicycleModel` repository
 ```bash
 cd KinematicBicycleModel
 python animate.py
 ```
 
-### Generate way_points:
-```bash
-python data/generate_waypoints.py
-```
-
 ### Demonstration:
-Current work on RRT* and MPC
-![Demonstration ](KinematicBicycleModel/rrt\ animation.gif)
+![Demonstration ](KinematicBicycleModel/animation.gif)
 
 
