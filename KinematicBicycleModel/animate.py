@@ -35,7 +35,7 @@ class Path:
         # RRTstar
         x = rrt.rrt_star()
         path = np.array(x)
-        ds = 0.01
+        ds = 0.005
 
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(path[:,0], path[:,1], ds)
 

@@ -201,11 +201,11 @@ class MPC_controller:
 
         d = np.hypot(dx, dy) # Find the distance from the front axle to the path
         print("goal index {}".format(goal_idx))
-        if len(d[nearest_index:goal_idx]) <= 10:
+        if len(d[nearest_index:goal_idx]) <= 50:
             target_index = goal_idx-1
             self.goal_number += 1
         else:
-            target_index = nearest_index + 5 + np.argmin(d[nearest_index + 5:goal_idx]) # Find the shortest distance in the array
+            target_index = nearest_index + 10 + np.argmin(d[nearest_index + 10:goal_idx]) # Find the shortest distance in the array
         print("length: {}".format(len(d[nearest_index:goal_idx])))
         print(nearest_index)
         print(target_index)
