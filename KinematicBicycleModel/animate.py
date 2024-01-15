@@ -1,7 +1,7 @@
 # pylint: skip-file
 from csv import reader
 from dataclasses import dataclass
-from math import radians
+from math import radians, pi
 
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -40,22 +40,23 @@ class Path:
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(path[:,0], path[:,1], ds)
 
     def path_append(self, path2, path3):
-
-        goals = np.zeros([3,3])
-        goals[0,:] = [self.px[-1], self.py[-1], self.pyaw[-1]]
+        '''
+        goal : [index, x, y, yaw]
+        '''
+        goals = np.zeros([3,4])
+        goals[0,:] = [int(len(self.px)), self.px[-1], self.py[-1], self.pyaw[-1]]
 
         self.px = np.append(self.px, path2.px[1:])
         self.py = np.append(self.py, path2.py[1:])
-        self.pyaw = np.append(self.pyaw, path2.pyaw[1:])
+        self.pyaw = np.append(self.pyaw, path2.pyaw[1:]+ pi)
         
-        goals[1,:] = [self.px[-1], self.py[-1], self.pyaw[-1]]
+        goals[1,:] = [int(len(self.px)), self.px[-1], self.py[-1], self.pyaw[-1]]
 
         self.px = np.append(self.px, path3.px[1:])
         self.py = np.append(self.py, path3.py[1:])
         self.pyaw = np.append(self.pyaw, path3.pyaw[1:])
 
-        goals[2,:] = [self.px[-1], self.py[-1], self.pyaw[-1]]
-
+        goals[2,:] = [int(len(self.px)), self.px[-1], self.py[-1], self.pyaw[-1]]
         return goals
              
 
@@ -116,7 +117,7 @@ class Car:
 
 
     def get_required_acceleration(self):
-        remaining_distance = np.linalg.norm([self.x - self.goals[self.goal_number, 0], self.y - self.goals[self.goal_number, 1]])
+        remaining_distance = np.linalg.norm([self.x - self.goals[self.goal_number, 1], self.y - self.goals[self.goal_number, 2]])
         
         path_length = np.zeros((3))
 
@@ -173,6 +174,8 @@ class Car:
         self.wheel_angle = inputs[1]
         # update reference and time
         self.time += self.delta_time
+        # if np.linalg.norm([self.x - self.goals[self.goal_number, 1], self.y - self.goals[self.goal_number, 2]]) < 2:
+        #     self.goal_number += 1
 
     def drive(self):
     
@@ -298,7 +301,7 @@ def animate(frame, fargs):
 
     # Drive and draw car
     car.CL_drive()
-    controller.update_reference(car.x, car.y, car.yaw, car.velocity, car.time)
+    controller.update_reference(car.x, car.y, car.yaw, car.velocity, car.time, car.goals)
     outline_plot, fr_plot, rr_plot, fl_plot, rl_plot = car.plot_car()
     car_outline.set_data(*outline_plot)
     front_right_wheel.set_data(*fr_plot)
@@ -370,7 +373,7 @@ def main():
     controller = MPC_controller(car.kinematic_bicycle_model, path.px, path.py, path.pyaw)
     initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
     car.current_state = initial_state
-    controller.update_reference(car.current_state[0], car.current_state[1], car.current_state[2], car.current_state[3], car.time)
+    controller.update_reference(car.current_state[0], car.current_state[1], car.current_state[2], car.current_state[3], car.time, car.goals)
     [model, mpc, estimator, simulator] = controller.model_setup()
     ## Initial state
     x0 = initial_state
@@ -471,7 +474,7 @@ def main():
     anim = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
     
 
-    anim.save('rrt animation.gif', writer='imagemagick', fps=50)
+    anim.save('rrt_animation.gif', writer='imagemagick', fps=50)
     
     plt.grid()
     plt.show()

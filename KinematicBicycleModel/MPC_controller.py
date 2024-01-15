@@ -139,6 +139,7 @@ class MPC_controller:
         self.vehicle = vehicle
         self.terminate = 0
         self.direction = -1
+        self.goal_number = 0
         
         # error
         self.distance_error = []
@@ -187,9 +188,9 @@ class MPC_controller:
         self.target_yaw = self.model.set_variable(var_type='_tvp', var_name='target_yaw')
         self.target_v = self.model.set_variable(var_type='_tvp', var_name='target_v')
         
-    def find_target_path_id(self, x, y, yaw):  
+    def find_target_path_id(self, x, y, yaw, goal_idx):  
         
-        nearest_index, _, _, _ = self.find_nearest_path_id(x,y,yaw)
+        nearest_index, _, _, _ = self.find_nearest_path_id(x,y,yaw,goal_idx)
         # Calculate position of the front axle
         fx = x + self.direction * self.vehicle.wheelbase * cos(yaw)
         fy = y + self.direction * self.vehicle.wheelbase * sin(yaw)
@@ -199,8 +200,13 @@ class MPC_controller:
         
 
         d = np.hypot(dx, dy) # Find the distance from the front axle to the path
-        target_index = nearest_index+ np.argmin(d[nearest_index:]) # Find the shortest distance in the array
-        print("length: {}".format(len(d[nearest_index:])))
+        print("goal index {}".format(goal_idx))
+        if len(d[nearest_index:goal_idx]) <= 10:
+            target_index = goal_idx-1
+            self.goal_number += 1
+        else:
+            target_index = nearest_index + 5 + np.argmin(d[nearest_index + 5:goal_idx]) # Find the shortest distance in the array
+        print("length: {}".format(len(d[nearest_index:goal_idx])))
         print(nearest_index)
         print(target_index)
         
@@ -208,7 +214,7 @@ class MPC_controller:
 
         return target_index, dx[target_index], dy[target_index], d[target_index]
     
-    def find_nearest_path_id(self, x, y, yaw):  
+    def find_nearest_path_id(self, x, y, yaw, goal_idx):  
 
         # Calculate position of the front axle
 
@@ -217,7 +223,7 @@ class MPC_controller:
         
 
         d = np.hypot(dx, dy) # Find the distance from the front axle to the path
-        target_index = np.argmin(d) # Find the shortest distance in the array
+        target_index = np.argmin(d[:goal_idx]) # Find the shortest distance in the array
         
         return target_index, dx[target_index], dy[target_index], d[target_index]
     
@@ -332,34 +338,37 @@ class MPC_controller:
         return yaw_error
     
     # cost function
-    def update_reference(self, x, y, yaw, v, time):
+    def update_reference(self, x, y, yaw, v, time, goals):
         # print(x)
         # print(y)
         # print(yaw)
         
         # find the target point
-        target_index, _, _, _ = self.find_target_path_id(x, y, yaw)
+        print("goal number: {}".format(self.goal_number))
+        mid_target_idx = int(goals[self.goal_number, 0])
+        target_index, _, _, _ = self.find_target_path_id(x, y, yaw, int(goals[self.goal_number, 0]))
         target_x = self.px[target_index]
         target_y = self.py[target_index]
         target_yaw = self.pyaw[target_index]
+        print("target yaw : {}".format(target_yaw))
         
         # error
-        nearest_index, dx, dy, absolute_error = self.find_nearest_path_id(x, y, yaw)
+        nearest_index, dx, dy, absolute_error = self.find_nearest_path_id(x, y, yaw, int(goals[self.goal_number, 0]))
         crosstrack_error = self.calculate_crosstrack_term(yaw, dx, dy, absolute_error)
         yaw_error = self.calculate_yaw_term(nearest_index, yaw)
         self.distance_error.append(crosstrack_error)
         self.heading_error.append(yaw_error)
         
+        if self.goal_number == 0: self.direction = 1
+        if self.goal_number == 1: self.direction = -1
+        if self.goal_number == 2: self.direction = 1
         # determine the velocity control
-        if target_index == nearest_index:
-            self.direction *= -1
         if self.direction == -1:
-            target_yaw = fmod((pi - target_yaw) + 3*pi, 2*pi) - pi
-            target_v = 1/5 * self.direction * min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
+            target_yaw = fmod((target_yaw) + 3*pi, 2*pi) - pi
+            target_v = 1/5 * self.direction * min(5, abs(float(x) - self.px[mid_target_idx-1]) + abs(float(y) - self.py[mid_target_idx-1]))
         else:
-            target_v = self.direction * min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
+            target_v = self.direction * min(5, abs(float(x) - self.px[mid_target_idx-1]) + abs(float(y) - self.py[mid_target_idx-1]))
         # target_v = min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
-        print("target yaw : {}".format(target_yaw))
         print("target v: {}".format(target_v))
         self.target_state = np.array([target_x, target_y, target_yaw, target_v])
         
