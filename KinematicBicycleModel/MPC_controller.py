@@ -247,7 +247,7 @@ class MPC_controller:
         # yaw_error = (sin(current_state[2] - self.target_state[2]))**2
         # print("current state: {}, {}, {}, {}".format(current_state[0], current_state[1], current_state[2], current_state[3]))
         # print("error: {}".format(x_error + y_error + yaw_error + vel_error))
-        return 10*x_error + 10*y_error + 10*yaw_error + 10 * vel_error 
+        return 10*x_error + 10*y_error + 50*yaw_error + 10 * vel_error 
         # return 30*x_error + 1*y_error + 500*yaw_error + 1* vel_error 
     
     def terminal_error_function(self):

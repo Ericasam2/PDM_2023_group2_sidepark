@@ -24,7 +24,7 @@ class Simulation:
         self.dt = 1/fps
         self.map_size_x = 25
         self.map_size_y = 25
-        self.frames = 1000  # simulation horizon
+        self.frames = 1200  # simulation horizon
         self.loop = False
 
 
@@ -35,7 +35,7 @@ class Path:
         # RRTstar
         x = rrt.rrt_star()
         path = np.array(x)
-        ds = 0.05
+        ds = 0.01
 
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(path[:,0], path[:,1], ds)
 
@@ -317,7 +317,7 @@ def animate(frame, fargs):
     target.set_data(path.px[car.target_id], path.py[car.target_id])
 
     # Annotate car's coordinate above car
-    annotation.set_text(f'{float(car.x):.1f}, {float(car.y):.1f}')
+    annotation.set_text(f'{float(car.x):.1f}, {float(car.y):.1f}, {float(car.yaw):.1f}')
     annotation.set_position((float(car.x), float(car.y) + 5))
     
 
@@ -341,14 +341,14 @@ def main():
     
     sim  = Simulation()
     X_dimesions = np.array([(-25, 25), (-25, 25)])
-    obstacles = np.array([(-25,-25,-5,25), (5,-25,25,25), (1.75, 17.5, 4.25, 22.5)])
+    obstacles = np.array([(-26.0, -26.5, -4.5, 26.5), (4.0, -26.5, 24.0, 26.5), (-0.25, 16.25, 6.25, 23.75)])
     searchspace = SearchSpace(X_dimesions, obstacles)
     start1 = (-2.5, -20)
     goal1 = (-0.75, 21.5)
     start2 = (-0.75, 21.5)
-    goal2 = (2.5, 10)
-    start3 = (2.5, 10)  # starting location
-    goal3 = (2.5, 15)  # goal location
+    goal2 = (2.5, 5)
+    start3 = (2.5, 5)  # starting location
+    goal3 = (2.5, 12)  # goal location
 
     Q = np.array([(1, 1)])  # length of tree edges
     r = 0.25  # length of smallest edge to check for intersection with obstacles
@@ -453,7 +453,7 @@ def main():
     front_left_wheel,  = ax.plot(*empty, color=car.colour)
     rear_left_wheel,   = ax.plot(*empty, color=car.colour)
     rear_axle,         = ax.plot(car.x, car.y, '+', color=car.colour, markersize=2)
-    annotation         = ax.annotate(f'{car.x:.1f}, {car.y:.1f}', xy=(car.x, car.y + 5), color='black', annotation_clip=False)
+    annotation         = ax.annotate(f'{car.x:.1f}, {car.y:.1f}, {car.yaw:.1f}', xy=(car.x, car.y + 5), color='black', annotation_clip=False)
 
     fargs = [Fargs(
         ax=ax,

@@ -21,8 +21,8 @@ def generate_cubic_spline(x: ArrayLike, y: ArrayLike, ds: float=0.05, bc_type: s
     yaw = np.arctan2(dy, dx)
 
     # Set yaw at the beginning and end to np.pi/2
-    yaw[0] = np.pi/2
-    yaw[-1] = np.pi/2
+    # yaw[0:5] = np.pi/2
+    # yaw[-5:] = np.pi/2
 
     ddx, ddy = cs.derivative(2)(s).T
     curvature = (ddy*dx - ddx*dy) / ((dx*dx + dy*dy)**1.5)
