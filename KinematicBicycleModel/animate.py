@@ -6,10 +6,11 @@ from math import radians
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from kinematic_model import KinematicBicycleModel
+from kinetic_bicycle_model import KinematicBicycleModel
 from libs import CarDescription, StanleyController, generate_cubic_spline
 from RRT_star.rrt_star import RRTStar
 from RRT_star.search_space.search_space import SearchSpace
+from MPC_controller import MPC_controller
 import numpy as np
 
 class Simulation:
@@ -34,7 +35,7 @@ class Path:
         # RRTstar
         x = rrt.rrt_star()
         path = np.array(x)
-        ds = 0.005
+        ds = 0.05
 
         self.px, self.py, self.pyaw, _ = generate_cubic_spline(path[:,0], path[:,1], ds)
 
@@ -73,6 +74,9 @@ class Car:
         self.velocity = 0.0
         self.wheel_angle = 0.0
         self.angular_velocity = 0.0
+        self.initial_state = np.array([init_x, init_y, init_yaw, 0.0])
+        self.current_state = self.initial_state
+        rear_length = 2.0
         max_steer = radians(33)
         wheelbase = 2.96
 
@@ -107,7 +111,7 @@ class Car:
 
         # Path tracking and Bicycle model
         self.tracker = StanleyController(self.k, self.ksoft, self.kyaw, self.ksteer, max_steer, wheelbase, self.px, self.py, self.pyaw)
-        self.kinematic_bicycle_model = KinematicBicycleModel(wheelbase, max_steer, self.delta_time)
+        self.kinematic_bicycle_model = KinematicBicycleModel(wheelbase, rear_length, max_steer, self.delta_time)
         self.description = CarDescription(overall_length, overall_width, rear_overhang, tyre_diameter, tyre_width, axle_track, wheelbase)
 
 
@@ -153,7 +157,22 @@ class Car:
     def plot_car(self):
         
         return self.description.plot_car(self.x, self.y, self.yaw, self.wheel_angle)
-
+    
+    def get_mpc(self, model, mpc, estimator, simulator):
+        self.mpc = mpc
+        self.estimator = estimator
+        self.simulator = simulator
+        
+    def CL_drive(self):
+        # print(self.current_state)
+        inputs = self.mpc.make_step(self.current_state)
+        y_next = self.simulator.make_step(inputs)
+        self.current_state = self.estimator.make_step(y_next)
+        
+        self.x, self.y, self.yaw, self.velocity = self.current_state[0], self.current_state[1], self.current_state[2], self.current_state[3]
+        self.wheel_angle = inputs[1]
+        # update reference and time
+        self.time += self.delta_time
 
     def drive(self):
     
@@ -251,6 +270,7 @@ class Fargs:
     sim: Simulation
     path: Path
     car: Car
+    ctrl: MPC_controller
     car_outline: plt.Line2D
     front_right_wheel: plt.Line2D
     front_left_wheel: plt.Line2D
@@ -264,7 +284,8 @@ class Fargs:
 def animate(frame, fargs):
     ax = fargs.ax
     sim = fargs.sim
-    car = fargs.car    
+    car = fargs.car
+    controller = fargs.ctrl    
     car_outline = fargs.car_outline
     path = fargs.path
     front_right_wheel = fargs.front_right_wheel
@@ -276,7 +297,8 @@ def animate(frame, fargs):
     target = fargs.target
 
     # Drive and draw car
-    car.drive()
+    car.CL_drive()
+    controller.update_reference(car.x, car.y, car.yaw, car.velocity, car.time)
     outline_plot, fr_plot, rr_plot, fl_plot, rl_plot = car.plot_car()
     car_outline.set_data(*outline_plot)
     front_right_wheel.set_data(*fr_plot)
@@ -286,18 +308,18 @@ def animate(frame, fargs):
     rear_axle.set_data(car.x, car.y)
 
     plt.title(f'{sim.dt*frame:.2f}s', loc='right')
-    plt.xlabel(f'Speed: {car.velocity:.2f} m/s', loc='left')
+    plt.xlabel(f'Speed: {float(car.velocity):.2f} m/s', loc='left')
 
     # Show car's target
     target.set_data(path.px[car.target_id], path.py[car.target_id])
 
     # Annotate car's coordinate above car
-    annotation.set_text(f'{car.x:.1f}, {car.y:.1f}')
-    annotation.set_position((car.x, car.y + 5))
+    annotation.set_text(f'{float(car.x):.1f}, {float(car.y):.1f}')
+    annotation.set_position((float(car.x), float(car.y) + 5))
     
 
     # Check if the car has reached the goal
-    goal_reached = np.linalg.norm([car.x - path.px[-1], car.y - path.py[-1]]) < 2
+    goal_reached = np.linalg.norm([car.x - path.px[-1], car.y - path.py[-1]]) < 0.5
 
     if goal_reached:
         plt.title("Goal Reached!", loc='center')
@@ -343,7 +365,24 @@ def main():
     goals = path.path_append(path2, path3)
 
     car  = Car(start1[0], start1[1], np.pi/2, path.px, path.py, path.pyaw, sim.dt, goals)
-
+    
+    # MPC setups
+    controller = MPC_controller(car.kinematic_bicycle_model, path.px, path.py, path.pyaw)
+    initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
+    car.current_state = initial_state
+    controller.update_reference(car.current_state[0], car.current_state[1], car.current_state[2], car.current_state[3], car.time)
+    [model, mpc, estimator, simulator] = controller.model_setup()
+    ## Initial state
+    x0 = initial_state
+    mpc.x0 = x0
+    simulator.x0 = x0
+    estimator.x0 = x0
+    ## Use initial state to set the initial guess.
+    mpc.set_initial_guess()
+    ## Call MPC in car object 
+    car.get_mpc(model, mpc, estimator, simulator)
+    
+    
     interval = sim.dt * 10**3
 
 
@@ -418,6 +457,7 @@ def main():
         sim=sim,
         path=path,
         car=car,
+        ctrl=controller,
         car_outline=car_outline,
         front_right_wheel=front_right_wheel,
         front_left_wheel=front_left_wheel,
@@ -428,11 +468,13 @@ def main():
         target=target
     )]
 
-    _ = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
+    anim = FuncAnimation(fig, animate, frames=sim.frames, init_func=lambda: None, fargs=fargs, interval=interval, repeat=sim.loop)
+    
+
+    anim.save('rrt animation.gif', writer='imagemagick', fps=50)
     
     plt.grid()
     plt.show()
-    # anim.save('animation.gif', writer='imagemagick', fps=50)
 
     
 

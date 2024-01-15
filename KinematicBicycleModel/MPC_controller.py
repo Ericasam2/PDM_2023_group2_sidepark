@@ -20,8 +20,8 @@ class Path:
     def __init__(self):
 
         # Get path to waypoints.csv
-        data_path = 'data/sine_wave_waypoints.csv'
-        # data_path = 'data/waypoints.csv'
+        # data_path = 'data/sine_wave_waypoints.csv'
+        data_path = 'data/waypoints.csv'
         with open(data_path, newline='') as f:
             rows = list(reader(f, delimiter=','))
 
@@ -138,6 +138,7 @@ class MPC_controller:
         self.pyaw = path_yaw
         self.vehicle = vehicle
         self.terminate = 0
+        self.direction = -1
         
         # error
         self.distance_error = []
@@ -187,19 +188,23 @@ class MPC_controller:
         self.target_v = self.model.set_variable(var_type='_tvp', var_name='target_v')
         
     def find_target_path_id(self, x, y, yaw):  
-
+        
+        nearest_index, _, _, _ = self.find_nearest_path_id(x,y,yaw)
         # Calculate position of the front axle
-        fx = x + self.vehicle.wheelbase * cos(yaw)
-        fy = y + self.vehicle.wheelbase * sin(yaw)
+        fx = x + self.direction * self.vehicle.wheelbase * cos(yaw)
+        fy = y + self.direction * self.vehicle.wheelbase * sin(yaw)
 
         dx = fx - self.px    # Find the x-axis of the front axle relative to the path
         dy = fy - self.py    # Find the y-axis of the front axle relative to the path
         
 
         d = np.hypot(dx, dy) # Find the distance from the front axle to the path
-        target_index = np.argmin(d) # Find the shortest distance in the array
+        target_index = nearest_index+ np.argmin(d[nearest_index:]) # Find the shortest distance in the array
+        print("length: {}".format(len(d[nearest_index:])))
+        print(nearest_index)
+        print(target_index)
         
-        yaw_error = normalise_angle(self.pyaw[target_index] - yaw)
+        # yaw_error = normalise_angle(self.pyaw[target_index] - yaw)
 
         return target_index, dx[target_index], dy[target_index], d[target_index]
     
@@ -346,8 +351,16 @@ class MPC_controller:
         self.heading_error.append(yaw_error)
         
         # determine the velocity control
-        target_v = min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
-        
+        if target_index == nearest_index:
+            self.direction *= -1
+        if self.direction == -1:
+            target_yaw = fmod((pi - target_yaw) + 3*pi, 2*pi) - pi
+            target_v = 1/5 * self.direction * min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
+        else:
+            target_v = self.direction * min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
+        # target_v = min(5, abs(float(x) - self.px[-1]) + abs(float(y) - self.py[-1]))
+        print("target yaw : {}".format(target_yaw))
+        print("target v: {}".format(target_v))
         self.target_state = np.array([target_x, target_y, target_yaw, target_v])
         
 
@@ -387,7 +400,7 @@ def MPC_drive_and_plot():
     estimator.x0 = x0  
     # Use initial state to set the initial guess.
     mpc.set_initial_guess()
-    N = 2000
+    N = 100
     for t in range(1, N):
         # control horizon
         u0 = mpc.make_step(x0)
@@ -458,7 +471,7 @@ def MPC_drive_and_plot():
     fig.tight_layout()
 
     # Save the figure to a file (e.g., PNG format)
-    plt.savefig('mpc_performance_plot.png')
+    # plt.savefig('mpc_performance_plot.png')
     
     # Create a 2x1 grid of subplots
     fig, axs = plt.subplots(2, 1, figsize=(8, 6))
@@ -490,7 +503,7 @@ def MPC_drive_and_plot():
     plt.tight_layout()
 
     # Save the plot to a file (e.g., PNG format)
-    plt.savefig('tracking_error_plot.png')
+    # plt.savefig('tracking_error_plot.png')
 
     # Show the plots
     plt.show()
@@ -595,6 +608,7 @@ def Stanley_drive_and_plot():
 def main():
     MPC_drive_and_plot()
     # Stanley_drive_and_plot()
+        
     
 if __name__ == '__main__':
     main()
