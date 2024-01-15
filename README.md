@@ -32,6 +32,7 @@ python data/generate_waypoints.py
 ```
 
 ### Demonstration:
-![Demonstration ](KinematicBicycleModel/animation.gif)
+Current work on RRT* and MPC
+![Demonstration ](KinematicBicycleModel/rrt\ animation.gif)
 
 
