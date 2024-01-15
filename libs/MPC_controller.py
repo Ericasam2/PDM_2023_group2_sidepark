@@ -203,7 +203,8 @@ class MPC_controller:
         print("goal index {}".format(goal_idx))
         if len(d[nearest_index:goal_idx]) <= 50:
             target_index = goal_idx-1
-            self.goal_number += 1
+            if self.goal_number <= 2:
+                self.goal_number += 1
         else:
             target_index = nearest_index + 10 + np.argmin(d[nearest_index + 10:goal_idx]) # Find the shortest distance in the array
         print("length: {}".format(len(d[nearest_index:goal_idx])))

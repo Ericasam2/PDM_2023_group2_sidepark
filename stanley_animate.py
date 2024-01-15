@@ -6,7 +6,7 @@ from math import radians
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from kinematic_model import KinematicBicycleModel
+from libs.kinetic_bicycle_model import KinematicBicycleModel
 from libs import CarDescription, StanleyController, generate_cubic_spline
 from RRT_star.rrt_star import RRTStar
 from RRT_star.search_space.search_space import SearchSpace
@@ -172,7 +172,7 @@ class Car:
         self.wheel_angle, self.target_id, self.crosstrack_error = self.tracker.stanley_control(
             self.x, self.y, self.yaw, self.velocity, self.wheel_angle
         )
-        self.x, self.y, self.yaw, self.velocity, _, _ = self.kinematic_bicycle_model.update(
+        self.x, self.y, self.yaw, self.velocity = self.kinematic_bicycle_model.dt_update(
             self.x, self.y, self.yaw, self.velocity, acceleration, self.wheel_angle
         )
 

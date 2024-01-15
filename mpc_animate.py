@@ -235,7 +235,7 @@ def animate(frame, fargs):
 
     # Drive and draw car
     car.CL_drive()
-    controller.update_reference(car.x, car.y, car.yaw, car.velocity, car.time)
+    controller.update_reference(car.x, car.y, car.yaw, car.velocity, car.time, car.target_state)
     outline_plot, fr_plot, rr_plot, fl_plot, rl_plot = car.plot_car()
     car_outline.set_data(*outline_plot)
     front_right_wheel.set_data(*fr_plot)
@@ -266,7 +266,8 @@ def main():
     controller = MPC_controller(car.kinematic_bicycle_model, path.px, path.py, path.pyaw)
     initial_state = np.array([path.px[0], path.py[0], path.pyaw[0], 0])
     car.current_state = initial_state
-    controller.update_reference(car.current_state[0], car.current_state[1], car.current_state[2], car.current_state[3], car.time)
+    car.target_state = np.array([[len(path.px), path.px[-1], path.py[-1], path.pyaw[-1]]])
+    controller.update_reference(car.current_state[0], car.current_state[1], car.current_state[2], car.current_state[3], car.time, car.target_state)
     [model, mpc, estimator, simulator] = controller.model_setup()
     
     # Initial state
